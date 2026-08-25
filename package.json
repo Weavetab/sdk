@@ -1,0 +1,47 @@
+{
+  "name": "@weavetab/sdk",
+  "version": "2.4.0-beta.3",
+  "description": "Official TypeScript SDK for developing Weavetab plugins and tools.",
+  "author": {
+    "name": "fy2ne",
+    "email": "hello@fy2ne.me",
+    "url": "https://fy2ne.me"
+  },
+  "license": "MIT",
+  "homepage": "https://weavetab.pages.dev",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/weavetab/sdk.git"
+  },
+  "bugs": {
+    "url": "https://github.com/weavetab/sdk/issues"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "weavetab": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "weavetab",
+    "weavetab-sdk",
+    "weavetab-plugin",
+    "mcp",
+    "mcp-plugin",
+    "browser-automation"
+  ],
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}
