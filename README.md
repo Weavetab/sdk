@@ -40,9 +40,7 @@ Whether you are building custom browser automation workflows, DOM scrapers, AI a
 
 ## 🚀 Quick Start
 
-### 1. Scaffold a New Plugin (Fastest)
-
-Run the SDK CLI with `npx -y` to initialize a ready-to-code plugin repository:
+### 1. Scaffold a New Plugin
 
 ```bash
 npx -y @weavetab/sdk init my-custom-plugin
@@ -50,12 +48,10 @@ cd my-custom-plugin
 npm install
 ```
 
-### 2. Or Install as a Dev Dependency in an Existing Project
-
-Install `@weavetab/sdk` into your `devDependencies` (`-D`):
+### 2. Installation (Existing Project)
 
 ```bash
-npm install -D @weavetab/sdk@beta
+npm i -D @weavetab/sdk@beta
 ```
 
 ### 3. Plugin Project Structure
