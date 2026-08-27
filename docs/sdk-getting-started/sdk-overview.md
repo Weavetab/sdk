@@ -10,8 +10,6 @@ slug: sdk-overview
 
 # Weavetab SDK
 
-> [!TIP]
-> 🚀 **LIVE MARKDOWN VERIFICATION**: Anas & Strategic Partner added this live callout directly inside `docs/sdk/sdk-getting-started/sdk-overview.md`! If you see this on `weavetab.pages.dev/docs/sdk-overview`, the Markdown engine is 100% dynamic and reading live from file! 🔥
 
 The **`@weavetab/sdk`** is the official TypeScript developer toolkit for authoring custom MCP tools, modular plugins, in-browser HUD overlays, and tool overrides for the Weavetab automation ecosystem.
 
