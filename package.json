@@ -1,6 +1,6 @@
 {
   "name": "@weavetab/sdk",
-  "version": "2.4.0-beta.3",
+  "version": "2.5.0-beta.2",
   "description": "Official TypeScript SDK for developing Weavetab plugins and tools.",
   "author": {
     "name": "fy2ne",
@@ -8,7 +8,7 @@
     "url": "https://fy2ne.me"
   },
   "license": "MIT",
-  "homepage": "https://weavetab.pages.dev",
+  "homepage": "https://github.com/weavetab/sdk",
   "repository": {
     "type": "git",
     "url": "https://github.com/weavetab/sdk.git"
@@ -20,6 +20,8 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
+    "weavetab-sdk": "dist/cli.js",
+    "weavetab-plugin": "dist/cli.js",
     "weavetab": "dist/cli.js"
   },
   "files": [
