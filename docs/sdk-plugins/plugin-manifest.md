@@ -42,12 +42,29 @@ Every Weavetab plugin includes a `weavetab.json` manifest at its root describing
     "cdp": {
       "evaluate": true,
       "reason": "Applies visual DOM transforms in page"
+    },
+    "hooks": {
+      "onBeforeAction": true,
+      "onAfterAction": true,
+      "onDOMMutation": true,
+      "reason": "Intercepts tool calls for security inspection and listens to DOM deltas"
     }
+  },
+  "middleware": {
+    "hooks": ["onBeforeAction", "onAfterAction", "onDOMMutation"]
   },
   "tools": [
     {
       "name": "highlight_elements",
-      "description": "Highlights specific DOM elements on the active webpage with custom outline colors"
+      "description": "Highlights specific DOM elements on the active webpage with custom outline colors",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "selector": { "type": "string", "description": "CSS selector to highlight" },
+          "color": { "type": "string", "description": "CSS outline color hex" }
+        },
+        "required": ["selector"]
+      }
     }
   ]
 }
@@ -64,3 +81,5 @@ Every Weavetab plugin includes a `weavetab.json` manifest at its root describing
 | `cdp` | Granular CDP capabilities (`evaluate`, `dom`, `click`, `navigate`, `network`, `screenshot`). |
 | `network` | Specific allowed domain and host glob patterns. |
 | `filesystem` | Restricted read/write path access outside the plugin's isolated folder. |
+| `hooks` | Permission to register enterprise middleware interceptors (`onBeforeAction`, `onAfterAction`, `onDOMMutation`). |
+

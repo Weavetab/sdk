@@ -10,15 +10,17 @@ import fs from "node:fs";
 import path from "node:path";
 import { execSync, spawn } from "node:child_process";
 import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
+import { exportManifest } from "./schema/exporter.js";
 
 const _require = createRequire(import.meta.url);
 
 function getSdkVersion(): string {
   try {
     const pkg = _require("../package.json");
-    return pkg.version || "2.5.0-beta.2";
+    return pkg.version || "2.5.0-beta.3";
   } catch {
-    return "2.5.0-beta.2";
+    return "2.5.0-beta.3";
   }
 }
 
@@ -43,6 +45,7 @@ function printHelp(): void {
 \x1b[1mDEVELOPER COMMANDS:\x1b[0m
   \x1b[32minit\x1b[0m [name]            Scaffold a new enterprise TypeScript plugin project
   \x1b[32mbuild\x1b[0m                  Compile TypeScript and synchronize weavetab.json manifest
+  \x1b[32mmanifest\x1b[0m (or schema)   Auto-generate MCP manifest & JSON schemas from Zod tools
   \x1b[32mdev\x1b[0m                    Start live TypeScript watch mode with manifest auto-sync
   \x1b[32mvalidate\x1b[0m               Validate manifest schema, isolated permissions, and sandbox
   \x1b[32mdoctor\x1b[0m                 Run environment diagnostics and verify plugin health
@@ -664,7 +667,7 @@ async function runBuild(): Promise<void> {
     }
   }
 
-  // 2. Synchronize weavetab.json
+  // 2. Synchronize weavetab.json and export tool schemas
   const pkgJson = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
   const manifestPath = path.join(cwd, "weavetab.json");
   let manifest: any = {};
@@ -677,13 +680,28 @@ async function runBuild(): Promise<void> {
     }
   }
 
+  // Attempt to load compiled plugin module to extract Zod tools and hooks
+  const entryRel = pkgJson.main || manifest.entry || "dist/index.js";
+  const entryAbs = path.join(cwd, entryRel);
+  if (fs.existsSync(entryAbs)) {
+    try {
+      const mod = await import(pathToFileURL(entryAbs).href);
+      const pluginDef = mod.default || mod.plugin || mod;
+      if (pluginDef && (pluginDef.name || pluginDef.tools || pluginDef.onBeforeAction || pluginDef.onAfterAction || pluginDef.onDOMMutation)) {
+        manifest = exportManifest(pluginDef, manifest);
+      }
+    } catch {
+      // If module requires runtime MCP host or globals, fallback gracefully to existing manifest
+    }
+  }
+
   const sdkVer = getSdkVersion();
 
   manifest.$schema = manifest.$schema || "https://raw.githubusercontent.com/weavetab/sdk/main/schema/plugin.json";
   manifest.name = pkgJson.name || manifest.name || "unnamed-plugin";
   manifest.version = pkgJson.version || manifest.version || "1.0.0";
   manifest.description = pkgJson.description || manifest.description || "";
-  manifest.entry = pkgJson.main || manifest.entry || "dist/index.js";
+  manifest.entry = entryRel;
 
   if (!manifest.engines) {
     manifest.engines = {
@@ -715,8 +733,55 @@ async function runBuild(): Promise<void> {
   }
 
   fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
-  console.log(`  \x1b[32m✔\x1b[0m Synchronized and validated weavetab.json manifest`);
+  console.log(`  \x1b[32m✔\x1b[0m Synchronized and validated weavetab.json manifest (${manifest.tools?.length || 0} tools declared)`);
   console.log(`\x1b[32m✔ Build completed successfully! Ready for publishing.\x1b[0m\n`);
+}
+
+// ---------------------------------------------------------------------------
+// 2.5 MANIFEST / SCHEMA EXPORT COMMAND
+// ---------------------------------------------------------------------------
+
+async function runManifest(): Promise<void> {
+  const cwd = process.cwd();
+  console.log(`\n\x1b[36m[Weavetab SDK]\x1b[0m Generating MCP manifest & tool schemas in \x1b[1m${cwd}\x1b[0m...`);
+
+  const pkgPath = path.join(cwd, "package.json");
+  if (!fs.existsSync(pkgPath)) {
+    console.error(`\x1b[31m[ERROR]\x1b[0m package.json not found in ${cwd}`);
+    process.exit(1);
+  }
+
+  const pkgJson = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+  const manifestPath = path.join(cwd, "weavetab.json");
+  let manifest: any = {};
+
+  if (fs.existsSync(manifestPath)) {
+    try {
+      manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
+    } catch {
+      manifest = {};
+    }
+  }
+
+  const entryRel = pkgJson.main || manifest.entry || "dist/index.js";
+  const entryAbs = path.join(cwd, entryRel);
+  if (!fs.existsSync(entryAbs)) {
+    console.log(`  \x1b[33m⚠\x1b[0m Compiled entry ${entryRel} not found. Running build first...`);
+    await runBuild();
+    return;
+  }
+
+  try {
+    const mod = await import(pathToFileURL(entryAbs).href);
+    const pluginDef = mod.default || mod.plugin || mod;
+    manifest = exportManifest(pluginDef, manifest);
+    fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
+    console.log(`  \x1b[32m✔\x1b[0m Successfully exported ${manifest.tools?.length || 0} tool(s) to weavetab.json:\n`);
+    console.log(JSON.stringify(manifest, null, 2));
+  } catch (err: any) {
+    console.error(`\x1b[31m[ERROR]\x1b[0m Failed to export manifest: ${err.message}`);
+    process.exit(1);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -889,6 +954,10 @@ switch (command) {
     break;
   case "build":
     runBuild();
+    break;
+  case "manifest":
+  case "schema":
+    runManifest();
     break;
   case "dev":
   case "watch":

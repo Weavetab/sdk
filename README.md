@@ -13,12 +13,13 @@
 `@weavetab/sdk` is the official developer SDK for building modular, enterprise-grade plugins that seamlessly extend the **Weavetab Model Context Protocol (MCP)** runtime.
 
 With `@weavetab/sdk`, you can:
+- 🛠️ **Zod Schema Exporter & Typegen**: Define MCP tools using 100% pure TypeScript + Zod (`defineTool`, `z`). Zero manual JSON schema writing — automatically exported to `weavetab.json`.
+- 🛡️ **Enterprise Middleware Hooks**: Intercept every tool executed across the browser runtime with `onBeforeAction` (ad-blocking, auth injection), `onAfterAction` (PII redaction, DLP), and `onDOMMutation` (live change streams).
 - 🛠️ **Register Custom MCP Tools**: Expose new automation, scraping, or API tools directly to AI coding agents (Claude, Gemini, Cursor, Copilot, Antigravity).
 - ⚙️ **Isolated Plugin Configurations**: Maintain dedicated `~/.weavetab/plugins/<name>/config.json` without modifying core settings.
 - 💾 **Sandboxed Persistent Storage**: Store key-value data and JSON files safely inside `~/.weavetab/plugins/<name>/`.
 - 🎨 **Chrome Extension & Visual HUD**: Show animated thought bubbles (`showThought`), update HUD status badges (`setHudState`), inject custom CSS (`injectStyles`), and execute scripts.
 - 🔀 **Override Built-in Tools**: Wrap or replace existing Weavetab tools (e.g. `browser_eval`, `browser_click`, `browser_navigate`).
-- 🪝 **Lifecycle & Pre/Post Hooks**: Intercept tool executions with `beforeToolCall`, `afterToolCall`, and `onPageNavigate`.
 - 🏗️ **Fluent `PluginBuilder` API**: Write clean, enterprise-grade plugin definitions with fluent chaining.
 
 ---
@@ -81,10 +82,34 @@ my-custom-plugin/
 
 ## 🛠️ Authoring Patterns
 
-### Option A: Fluent `PluginBuilder` Pattern (Enterprise)
+### Option A: Type-Safe Tool Definition with Zod (`defineTool`)
+
+Plugin authors do not have to hand-craft JSON Schema draft-07 objects. Define tools using pure TypeScript + Zod with full auto-completion and compile-time type inference:
 
 ```typescript
-import { PluginBuilder } from "@weavetab/sdk";
+import { defineTool, z } from "@weavetab/sdk";
+
+export const auditTool = defineTool({
+  name: "audit_page",
+  description: "Audits target page components and reports issues",
+  schema: z.object({
+    selector: z.string().describe("Root CSS selector to inspect"),
+    maxDepth: z.number().default(5).describe("Maximum DOM depth to traverse"),
+    strictMode: z.boolean().optional().describe("Fail on minor accessibility warnings"),
+  }),
+  // args is inferred as: { selector: string; maxDepth: number; strictMode?: boolean }
+  handler: async (args, session) => {
+    return {
+      content: [{ type: "text", text: `Inspected ${args.selector} up to depth ${args.maxDepth}` }],
+    };
+  },
+});
+```
+
+### Option B: Fluent `PluginBuilder` Pattern (Enterprise)
+
+```typescript
+import { PluginBuilder, z } from "@weavetab/sdk";
 
 export default new PluginBuilder("weavetab-plugin-analytics")
   .version("1.0.0")
@@ -97,17 +122,27 @@ export default new PluginBuilder("weavetab-plugin-analytics")
   .addTool({
     name: "record_metric",
     description: "Records custom telemetry event in isolated plugin storage",
-    schema: {
-      type: "object",
-      properties: {
-        metric: { type: "string", description: "Metric name" },
-        value: { type: "number", description: "Numerical value" },
-      },
-      required: ["metric", "value"],
-    },
+    schema: z.object({
+      metric: z.string().describe("Metric name"),
+      value: z.number().describe("Numerical value"),
+    }),
     handler: async (args, session) => {
       return { content: [{ type: "text", text: `Recorded ${args.metric}: ${args.value}` }] };
     },
+  })
+  // Intercept every tool call before it runs
+  .onBeforeAction(async (tool, args, session) => {
+    if (tool === "browser_navigate" && args.url?.includes("tracking-ads.com")) {
+      return { __blocked: true, reason: "Blocked navigation to tracking domain" };
+    }
+  })
+  // Inspect or transform results after execution
+  .onAfterAction(async (tool, result) => {
+    return result;
+  })
+  // Stream live DOM mutations
+  .onDOMMutation(async (delta) => {
+    console.log(`[Analytics] DOM change detected: ${delta.type}`);
   })
   .onLoad(async (ctx) => {
     ctx.logger.info("Analytics plugin active with config:", ctx.config);
@@ -115,10 +150,11 @@ export default new PluginBuilder("weavetab-plugin-analytics")
   .build();
 ```
 
-### Option B: Declarative `definePlugin` Pattern
+### Option C: Declarative `definePlugin` Pattern
 
 ```typescript
 import { definePlugin, type PluginContext } from "@weavetab/sdk";
+import { auditTool } from "./tools.js";
 
 export default definePlugin({
   name: "weavetab-plugin-example",
@@ -130,52 +166,28 @@ export default definePlugin({
     themeColor: "#3b82f6",
   },
 
+  tools: [auditTool],
+
+  // Enterprise Middleware Hooks
+  onBeforeAction: async (tool, args) => {
+    // Modify args or block unauthorized tool calls
+  },
+  onAfterAction: async (tool, result) => {
+    // Redact sensitive data before returning to agent
+    return result;
+  },
+  onDOMMutation: async (delta) => {
+    // Process live element mutations
+  },
+
   async onLoad(ctx: PluginContext) {
     ctx.logger.info("Plugin loaded! Config:", ctx.config);
 
-    // 1. Register custom MCP tool
+    // Dynamic tool registrations also support Zod schemas
     ctx.mcp.registerTool({
-      name: "example_analyze_page",
-      description: "Extracts key insights and displays real-time visual feedback.",
-      schema: {
-        type: "object",
-        properties: {
-          selector: { type: "string", description: "CSS selector to target" },
-        },
-      },
-      handler: async (args: { selector?: string }, session: any) => {
-        // Track stats in isolated plugin storage
-        const runs = (await ctx.storage.get<number>("runs", 0)) || 0;
-        await ctx.storage.set("runs", runs + 1);
-
-        // Show real-time thought bubble on the active browser tab
-        if (ctx.config.enableHud && session) {
-          await ctx.extension.showThought(
-            session,
-            `🔍 Analyzing page selector: ${args.selector || "body"}...`,
-            { durationMs: 4000 }
-          );
-
-          await ctx.extension.setHudState(session, {
-            badge: "Analyzing",
-            badgeColor: ctx.config.themeColor,
-          });
-        }
-
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Analysis complete! Total executions: ${runs + 1}`,
-            },
-          ],
-        };
-      },
-    });
-
-    // 2. Register lifecycle hooks
-    ctx.hooks.beforeToolCall((toolName, toolArgs) => {
-      ctx.logger.debug(`[Hook] Invoking: ${toolName}`, toolArgs);
+      name: "example_ping",
+      description: "Health check probe",
+      handler: async () => ({ content: [{ type: "text", text: "pong" }] }),
     });
   },
 
@@ -183,6 +195,52 @@ export default definePlugin({
     ctx.logger.info("Plugin unloaded.");
   },
 });
+```
+
+---
+
+## 🛡️ Enterprise Middleware & Interceptor Hooks
+
+Enterprise plugins can intercept **every MCP tool call** across the runtime beneath the agent:
+
+### 1. `onBeforeAction` (Ad-Blocking & Security Guards)
+```typescript
+onBeforeAction: async (tool, args) => {
+  // Block destructive actions
+  if (tool === "browser_click" && args.selector?.includes(".delete-all")) {
+    return { __blocked: true, reason: "Destructive bulk deletion forbidden by security policy" };
+  }
+
+  // Inject corporate auth headers
+  if (tool === "browser_navigate" && args.url?.startsWith("https://corp.internal/")) {
+    return {
+      ...args,
+      headers: { ...args.headers, Authorization: "Bearer token-xyz" },
+    };
+  }
+}
+```
+
+### 2. `onAfterAction` (DLP & PII Redaction)
+```typescript
+onAfterAction: async (tool, result) => {
+  if (tool === "browser_map" || tool === "browser_scrape") {
+    // Scrub sensitive identifiers from the DOM text returned to LLMs
+    return JSON.parse(
+      JSON.stringify(result).replace(/\b\d{3}-\d{2}-\d{4}\b/g, "[SSN REDACTED]")
+    );
+  }
+  return result;
+}
+```
+
+### 3. `onDOMMutation` (Real-Time DOM Diff Stream)
+```typescript
+onDOMMutation: async (delta) => {
+  if (delta.significantChange) {
+    console.log(`DOM mutated on ${delta.url}: ${delta.added?.length || 0} elements added.`);
+  }
+}
 ```
 
 ---
@@ -281,6 +339,7 @@ The `@weavetab/sdk` exposes the `weavetab`, `weavetab-sdk`, and `weavetab-plugin
 |---|---|
 | `weavetab init [name] [--template <type>]` | Scaffolds a new TypeScript plugin template |
 | `weavetab build` | Compiles TypeScript and synchronizes `weavetab.json` |
+| `weavetab manifest` / `schema` | Auto-generates `weavetab.json` manifest from Zod tool definitions & middleware hooks |
 | `weavetab dev` | Starts live TypeScript watch mode (`tsc --watch`) |
 | `weavetab validate` | Audits and validates `weavetab.json` schema and permissions |
 | `weavetab doctor` | Runs complete developer environment diagnostics and health checks |

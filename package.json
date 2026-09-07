@@ -1,6 +1,6 @@
 {
   "name": "@weavetab/sdk",
-  "version": "2.5.0-beta.2",
+  "version": "2.5.0-beta.3",
   "description": "Official TypeScript SDK for developing Weavetab plugins and tools.",
   "author": {
     "name": "fy2ne",
@@ -19,6 +19,18 @@
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./schema": {
+      "import": "./dist/schema/exporter.js",
+      "types": "./dist/schema/exporter.d.ts"
+    },
+    "./schema/plugin.json": "./schema/plugin.json",
+    "./schema/tool.json": "./schema/tool.json"
+  },
   "bin": {
     "weavetab-sdk": "dist/cli.js",
     "weavetab-plugin": "dist/cli.js",
@@ -26,11 +38,14 @@
   },
   "files": [
     "dist",
+    "schema",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc"
+    "build": "tsc",
+    "test": "node --test test/*.test.mjs",
+    "prepublishOnly": "npm run build"
   },
   "publishConfig": {
     "access": "public"
@@ -43,6 +58,9 @@
     "mcp-plugin",
     "browser-automation"
   ],
+  "dependencies": {
+    "zod": "^3.25.76"
+  },
   "devDependencies": {
     "typescript": "^5.0.0"
   }

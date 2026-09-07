@@ -15,8 +15,13 @@ The SDK exposes developer CLI commands via `npx @weavetab/sdk <command>` or loca
 # Scaffold a new plugin
 weavetab init <plugin-name> --template <template>
 
-# Build TypeScript and synchronize weavetab.json
+# Build TypeScript and auto-synchronize weavetab.json tool schemas & hooks
 weavetab build
+
+# Auto-generate weavetab.json manifest from Zod tool definitions & middleware hooks
+weavetab manifest
+# or alias:
+weavetab schema
 
 # Live TypeScript watch mode with manifest auto-sync
 weavetab dev
@@ -29,5 +34,5 @@ weavetab doctor
 
 # Print current SDK version
 weavetab version
-# → 2.5.0
+# → 2.5.0-beta.3
 ```

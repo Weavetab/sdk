@@ -5,6 +5,10 @@
  * Copyright (c) 2026 fy2ne. Licensed under the MIT License.
  */
 
+import { z } from "zod";
+export { z };
+export * from "./schema/exporter.js";
+
 export interface McpToolSchema {
   type: "object";
   properties: Record<string, any>;
@@ -24,6 +28,49 @@ export interface McpToolResult {
   content: McpToolContentItem[];
   isError?: boolean;
   [key: string]: any;
+}
+
+export type InferToolArgs<TSchema> = TSchema extends z.ZodRawShape
+  ? z.infer<z.ZodObject<TSchema>>
+  : TSchema extends z.ZodTypeAny
+  ? z.infer<TSchema>
+  : any;
+
+export interface DefinedTool<TSchema = any, TReturn = any> {
+  name: string;
+  description: string;
+  schema?: TSchema;
+  parameters?: any;
+  inputSchema?: any;
+  handler: (
+    args: InferToolArgs<TSchema>,
+    session?: any,
+    config?: any
+  ) => Promise<McpToolResult | Record<string, any> | string | void>;
+}
+
+/**
+ * Type-safe helper to define an MCP Tool with automatic Zod schema inference.
+ *
+ * @example
+ * ```ts
+ * const myTool = defineTool({
+ *   name: "filter_ads",
+ *   description: "Filters ad frames and banners",
+ *   schema: {
+ *     targetDomain: z.string().describe("Domain to filter"),
+ *     aggressive: z.boolean().default(false).describe("Aggressive filtering"),
+ *   },
+ *   handler: async ({ targetDomain, aggressive }, session) => {
+ *     return { content: [{ type: "text", text: `Filtered ${targetDomain}` }] };
+ *   }
+ * });
+ * ```
+ */
+export function defineTool<TSchema extends z.ZodRawShape | z.ZodTypeAny = any, TReturn = any>(
+  definition: DefinedTool<TSchema, TReturn>
+): DefinedTool<TSchema, TReturn> {
+  return definition;
 }
 
 export interface McpToolRegistration<TArgs = any> {
@@ -96,12 +143,67 @@ export interface PluginExtensionBridge {
   restoreOverlay(session: any): Promise<void>;
 }
 
+export interface DOMMutationDelta {
+  type?: "cdp_mutation" | "action_delta" | "page_update" | string;
+  timestamp?: number;
+  url?: string;
+  added: Array<{
+    id?: string;
+    role?: string;
+    label?: string;
+    tag?: string;
+    text?: string;
+    backendNodeId?: number;
+    [key: string]: any;
+  }>;
+  removed: Array<string | { backendNodeId?: number; tag?: string; text?: string; [key: string]: any }>;
+  changed: Array<{
+    ref?: string;
+    role?: string;
+    label?: string;
+    attribute?: string;
+    oldValue?: any;
+    newValue?: any;
+    changes?: Record<string, { from: any; to: any }>;
+    actionable?: boolean;
+    [key: string]: any;
+  }>;
+  significantChange?: boolean;
+  stable_count?: number;
+  [key: string]: any;
+}
+
+export type BeforeActionHook = (
+  tool: string,
+  args: Record<string, any>,
+  session?: any
+) => Promise<Record<string, any> | { __blocked: boolean; reason?: string } | void> | Record<string, any> | { __blocked: boolean; reason?: string } | void;
+
+export type AfterActionHook = (
+  tool: string,
+  result: any,
+  session?: any,
+  args?: Record<string, any>
+) => Promise<any> | any;
+
+export type DOMMutationHook = (
+  delta: DOMMutationDelta,
+  session?: any
+) => Promise<void> | void;
+
 export interface PluginHooks {
-  /** Register a hook called before any tool is executed */
+  /** Enterprise interceptor called before any tool action executes */
+  onBeforeAction(handler: BeforeActionHook): void;
+  /** Enterprise interceptor called after any tool action completes */
+  onAfterAction(handler: AfterActionHook): void;
+  /** Real-time observer called when DOM mutations or action deltas occur */
+  onDOMMutation(handler: DOMMutationHook): void;
+
+  /** Register a hook called before any tool is executed (backwards-compatible alias) */
   beforeToolCall(
     handler: (toolName: string, args: Record<string, any>, session?: any) => Promise<any> | void
   ): void;
-  /** Register a hook called after a tool completes execution */
+  /** Register a hook called after a tool completes execution (backwards-compatible alias) */
   afterToolCall(
     handler: (toolName: string, args: Record<string, any>, result: any, session?: any) => Promise<any> | void
   ): void;
@@ -153,7 +255,7 @@ export interface WeavetabPluginDefinition {
   /** Description */
   description?: string;
   /** Static tool registrations */
-  tools?: McpToolRegistration[];
+  tools?: Array<DefinedTool | McpToolRegistration>;
   /** Static tool overrides */
   overrides?: ToolOverrideDefinition[];
   /** Built-in tools to remove */
@@ -161,9 +263,17 @@ export interface WeavetabPluginDefinition {
   /** Default isolated configuration written to ~/.weavetab/plugins/<name>/config.json if not present */
   defaultConfig?: Record<string, any>;
   /** Called when the plugin is loaded into the Weavetab runtime */
-  onLoad: (ctx: PluginContext) => Promise<void> | void;
+  onLoad?: (ctx: PluginContext) => Promise<void> | void;
   /** Called when the plugin is unloaded */
   onUnload?: (ctx: PluginContext) => Promise<void> | void;
+
+  /** Enterprise interceptor called before any tool action executes */
+  onBeforeAction?: BeforeActionHook;
+  /** Enterprise interceptor called after any tool action completes */
+  onAfterAction?: AfterActionHook;
+  /** Real-time observer called when DOM mutations or action deltas occur */
+  onDOMMutation?: DOMMutationHook;
+
   [key: string]: any;
 }
 
@@ -185,6 +295,12 @@ export interface WeavetabPermissions {
     override?: string[];
     remove?: string[];
     hooks?: boolean;
+    reason?: string;
+  };
+  hooks?: {
+    onBeforeAction?: boolean;
+    onAfterAction?: boolean;
+    onDOMMutation?: boolean;
     reason?: string;
   };
   cdp?: {
@@ -209,8 +325,15 @@ export interface WeavetabPermissions {
     write?: string[];
     reason?: string;
   };
+  fs?: {
+    read?: string[];
+    write?: string[];
+    reason?: string;
+  };
   [key: string]: any;
 }
+
+export type WeavetabManifestPermissions = WeavetabPermissions | string[];
 
 export interface WeavetabManifestTool {
   name: string;
@@ -229,7 +352,8 @@ export interface WeavetabManifest {
   authors?: Array<{ name: string; email?: string; url?: string; role?: string }>;
   engines?: Record<string, string>;
   environments?: string[];
-  permissions?: WeavetabPermissions;
+  lazy?: boolean;
+  permissions?: WeavetabManifestPermissions;
   tools?: WeavetabManifestTool[];
   defaultConfig?: Record<string, any>;
   keywords?: string[];
@@ -314,6 +438,32 @@ export class PluginBuilder {
 
   onUnload(handler: (ctx: PluginContext) => Promise<void> | void): this {
     this.def.onUnload = handler;
+    return this;
+  }
+
+  /**
+   * Enterprise interceptor hook called before any tool action executes.
+   * Can inspect, modify, or block action arguments.
+   */
+  onBeforeAction(handler: BeforeActionHook): this {
+    this.def.onBeforeAction = handler;
+    return this;
+  }
+
+  /**
+   * Enterprise interceptor hook called after any tool action completes.
+   * Can inspect or transform the tool result.
+   */
+  onAfterAction(handler: AfterActionHook): this {
+    this.def.onAfterAction = handler;
+    return this;
+  }
+
+  /**
+   * Real-time observer hook called when DOM mutations or action deltas occur.
+   */
+  onDOMMutation(handler: DOMMutationHook): this {
+    this.def.onDOMMutation = handler;
     return this;
   }
 
