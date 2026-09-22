@@ -28,7 +28,7 @@ Runs immediately before any tool handler (built-in or plugin-provided) executes.
 type BeforeActionHook = (
   toolName: string,
   args: Record<string, any>,
-  session: CDP.Client | null
+  session: any
 ) => Promise<Record<string, any> | { __blocked: true; reason: string } | void | undefined>;
 ```
 
@@ -180,7 +180,9 @@ When using middleware hooks, declare the `hooks` permission in `weavetab.json`:
     }
   },
   "middleware": {
-    "hooks": ["onBeforeAction", "onAfterAction", "onDOMMutation"]
+    "onBeforeAction": true,
+    "onAfterAction": true,
+    "onDOMMutation": true
   }
 }
 ```

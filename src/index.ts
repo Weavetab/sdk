@@ -8,6 +8,7 @@
 import { z } from "zod";
 export { z };
 export * from "./schema/exporter.js";
+export * from "./version.js";
 
 export interface McpToolSchema {
   type: "object";
@@ -218,6 +219,67 @@ export interface PluginLogger {
   debug: (...args: any[]) => void;
 }
 
+export interface WorkflowStep {
+  tool: string;
+  target?: string;
+  value?: string;
+  extra?: Record<string, any>;
+}
+
+export interface WorkflowPattern {
+  name: string;
+  steps: WorkflowStep[];
+  success_indicator?: string;
+  entry?: string;
+  avg_duration_ms?: number;
+  reliability: number;
+  strikes: number;
+  last_verified: string;
+  total_executions: number;
+  successful_executions: number;
+}
+
+export interface SiteQuirks {
+  cookie_banner?: {
+    selector: string;
+    action: string;
+    appears: "first_visit" | "always" | "random";
+  };
+  rate_limit?: {
+    threshold?: string;
+    recovery?: string;
+  };
+  modal_popups?: Array<{
+    trigger?: string;
+    dismiss_selector: string;
+  }>;
+  [key: string]: any;
+}
+
+export interface SiteProfile {
+  origin: string;
+  framework?: string;
+  shadowDom?: boolean;
+  captcha_frequency?: "none" | "rare" | "moderate" | "frequent";
+  quirks: SiteQuirks;
+  patterns: Record<string, WorkflowPattern>;
+  updatedAt: string;
+  visitCount: number;
+}
+
+export interface PluginMemoryContext {
+  /** Inspect or load the persistent SiteProfile for an origin (~/.weavetab-system/memory/sites/) */
+  getSiteProfile(origin: string): Promise<SiteProfile | null>;
+  /** Register or update a named workflow pattern for an origin */
+  learnPattern(origin: string, name: string, pattern: Partial<WorkflowPattern>): Promise<WorkflowPattern>;
+  /** Update reliability score following a replay attempt */
+  recordExecution(origin: string, name: string, success: boolean, durationMs?: number): Promise<WorkflowPattern | null>;
+  /** Get reliability score (0.0–1.0) for a pattern */
+  getReliability(origin: string, patternName: string): Promise<number>;
+  /** Record a site quirk (cookie banner, rate limit, modal popup) */
+  recordQuirk(origin: string, quirkKey: string, quirkData: any): Promise<void>;
+}
+
 export interface PluginContext {
   /** Plugin unique name */
   name: string;
@@ -235,6 +297,8 @@ export interface PluginContext {
   mcp: PluginMcpContext;
   /** Lifecycle and execution hooks */
   hooks: PluginHooks;
+  /** Cross-session site learning and persistent profile memory */
+  memory?: PluginMemoryContext;
   /** Logger */
   logger: PluginLogger;
   [key: string]: any;

@@ -13,14 +13,16 @@ import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import { exportManifest } from "./schema/exporter.js";
 
+import { WEAVETAB_VERSION } from "./version.js";
+
 const _require = createRequire(import.meta.url);
 
 function getSdkVersion(): string {
   try {
     const pkg = _require("../package.json");
-    return pkg.version || "2.5.0-beta.3";
+    return pkg.version || WEAVETAB_VERSION;
   } catch {
-    return "2.5.0-beta.3";
+    return WEAVETAB_VERSION;
   }
 }
 
@@ -147,7 +149,7 @@ export default definePlugin({
         }
 
         return {
-          content: [{ type: "text", text: \`Successfully highlighted elements matching "\${args.selector}" with color \${color}\` }],
+          content: [{ type: "text", text: \`highlighted elements matching "\${args.selector}" with color \${color}\` }],
         };
       },
     });
@@ -489,6 +491,57 @@ export default definePlugin({
 });
 `,
       };
+    case "automation":
+      return {
+        config: {
+          enabled: true,
+        },
+        perms: {
+          cdp: { evaluate: true, navigate: true, click: true, reason: "Executes multi-step automation sequences" },
+          filesystem: { read: ["*"], write: ["*"], reason: "Reads input files and writes outputs" }
+        },
+        tools: [
+          {
+            name: "run_automation",
+            description: "Runs a custom multi-step automation workflow",
+            parameters: {
+              type: "object",
+              properties: {
+                target: { type: "string", description: "Target to automate" },
+              },
+              required: ["target"],
+            }
+          }
+        ],
+        src: `import { definePlugin, type PluginContext } from "@weavetab/sdk";
+
+export default definePlugin({
+  name: "${pluginPkgName}",
+
+  async onLoad(ctx: PluginContext) {
+    ctx.logger.info("Automation plugin loaded");
+
+    ctx.mcp.registerTool({
+      name: "run_automation",
+      description: "Runs a custom multi-step automation workflow",
+      schema: {
+        type: "object",
+        properties: {
+          target: { type: "string" },
+        },
+        required: ["target"],
+      },
+      handler: async (args, session) => {
+        ctx.logger.info(\`Running automation on \${args.target}\`);
+        return {
+          content: [{ type: "text", text: \`Automation complete for \${args.target}\` }]
+        };
+      },
+    });
+  },
+});
+`
+      };
   }
 }
 
@@ -633,7 +686,7 @@ weavetab plugin add ${pkgJson.name}
 `;
   fs.writeFileSync(path.join(targetDir, "README.md"), readme);
 
-  console.log(`\x1b[32m✔\x1b[0m Plugin [1m${pluginName}[0m scaffolded successfully using [36m${templateType}[0m template!`);
+  console.log(`\x1b[32m✔\x1b[0m Plugin \x1b[1m${pluginName}\x1b[0m scaffolded with \x1b[36m${templateType}\x1b[0m template!`);
   console.log(`\n\x1b[1mNext steps:\x1b[0m`);
   console.log(`  cd ${pluginName}`);
   console.log(`  npm install`);
@@ -734,7 +787,7 @@ async function runBuild(): Promise<void> {
 
   fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
   console.log(`  \x1b[32m✔\x1b[0m Synchronized and validated weavetab.json manifest (${manifest.tools?.length || 0} tools declared)`);
-  console.log(`\x1b[32m✔ Build completed successfully! Ready for publishing.\x1b[0m\n`);
+  console.log(`\x1b[32m✔ build complete.\x1b[0m\n`);
 }
 
 // ---------------------------------------------------------------------------
@@ -776,7 +829,7 @@ async function runManifest(): Promise<void> {
     const pluginDef = mod.default || mod.plugin || mod;
     manifest = exportManifest(pluginDef, manifest);
     fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
-    console.log(`  \x1b[32m✔\x1b[0m Successfully exported ${manifest.tools?.length || 0} tool(s) to weavetab.json:\n`);
+    console.log(`  \x1b[32m✔\x1b[0m exported ${manifest.tools?.length || 0} tool(s) to weavetab.json:\n`);
     console.log(JSON.stringify(manifest, null, 2));
   } catch (err: any) {
     console.error(`\x1b[31m[ERROR]\x1b[0m Failed to export manifest: ${err.message}`);
@@ -790,7 +843,7 @@ async function runManifest(): Promise<void> {
 
 async function runDev(): Promise<void> {
   const cwd = process.cwd();
-  console.log(`\n\x1b[36m[Weavetab SDK]\x1b[0m Starting developer watch mode in [1m${cwd}[0m...`);
+  console.log(`\n\x1b[36m[Weavetab SDK]\x1b[0m watch mode in \x1b[1m${cwd}\x1b[0m...`);
 
   const isWin = process.platform === "win32";
   const cmd = isWin ? "npx.cmd" : "npx";
@@ -803,6 +856,11 @@ async function runDev(): Promise<void> {
 
   child.on("close", (code) => {
     process.exit(code ?? 0);
+  });
+
+  child.on("error", (err) => {
+    console.error(`\x1b[31m[ERROR]\x1b[0m Failed to start tsc --watch: ${err.message}`);
+    process.exit(1);
   });
 }
 
@@ -946,40 +1004,47 @@ async function runDoctor(): Promise<void> {
 // ROUTER
 // ---------------------------------------------------------------------------
 
-switch (command) {
-  case "init":
-  case "create":
-  case "new":
-    runInit();
-    break;
-  case "build":
-    runBuild();
-    break;
-  case "manifest":
-  case "schema":
-    runManifest();
-    break;
-  case "dev":
-  case "watch":
-    runDev();
-    break;
-  case "validate":
-  case "check":
-    runValidate();
-    break;
-  case "doctor":
-  case "test":
-    runDoctor();
-    break;
-  case "version":
-  case "-v":
-  case "--version":
-    console.log(`@weavetab/sdk v${getSdkVersion()}`);
-    break;
-  case "help":
-  case "-h":
-  case "--help":
-  default:
-    printHelp();
-    break;
+async function main() {
+  switch (command) {
+    case "init":
+    case "create":
+    case "new":
+      await runInit();
+      break;
+    case "build":
+      await runBuild();
+      break;
+    case "manifest":
+    case "schema":
+      await runManifest();
+      break;
+    case "dev":
+    case "watch":
+      await runDev();
+      break;
+    case "validate":
+    case "check":
+      await runValidate();
+      break;
+    case "doctor":
+    case "test":
+      await runDoctor();
+      break;
+    case "version":
+    case "-v":
+    case "--version":
+      console.log(`@weavetab/sdk v${getSdkVersion()}`);
+      break;
+    case "help":
+    case "-h":
+    case "--help":
+    default:
+      printHelp();
+      break;
+  }
 }
+
+main().catch((err) => {
+  console.error(`\x1b[31m[Weavetab SDK] Unhandled CLI Error:\x1b[0m`, err);
+  process.exit(1);
+});

@@ -34,5 +34,5 @@ weavetab doctor
 
 # Print current SDK version
 weavetab version
-# → 2.5.0-beta.3
+# → 2.5.0-beta.4
 ```

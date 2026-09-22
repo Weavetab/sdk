@@ -10,7 +10,7 @@
 
 ## ⚡ Overview
 
-`@weavetab/sdk` is the official developer SDK for building modular, enterprise-grade plugins that seamlessly extend the **Weavetab Model Context Protocol (MCP)** runtime.
+`@weavetab/sdk` is the official developer SDK for building modular, enterprise-grade plugins that extend the **Weavetab Model Context Protocol (MCP)** runtime.
 
 With `@weavetab/sdk`, you can:
 - 🛠️ **Zod Schema Exporter & Typegen**: Define MCP tools using 100% pure TypeScript + Zod (`defineTool`, `z`). Zero manual JSON schema writing — automatically exported to `weavetab.json`.
