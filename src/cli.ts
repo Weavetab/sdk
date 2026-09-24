@@ -1035,6 +1035,14 @@ async function main() {
     case "--version":
       console.log(`@weavetab/sdk v${getSdkVersion()}`);
       break;
+    case "config":
+      console.log(`\n\x1b[33m[Weavetab SDK] The configuration wizard is part of @weavetab/mcp.\x1b[0m`);
+      console.log(`To configure the MCP server, run: \x1b[36mnpx -y @weavetab/mcp config\x1b[0m\n`);
+      break;
+    case "skills":
+      console.log(`\n\x1b[33m[Weavetab SDK] The agent skills engine is part of @weavetab/skills.\x1b[0m`);
+      console.log(`To install or update skills, run: \x1b[36mnpx -y @weavetab/skills@latest\x1b[0m\n`);
+      break;
     case "help":
     case "-h":
     case "--help":

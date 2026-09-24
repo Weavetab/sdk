@@ -32,6 +32,7 @@
     "./schema/tool.json": "./schema/tool.json"
   },
   "bin": {
+    "weavetab": "dist/cli.js",
     "weavetab-sdk": "dist/cli.js",
     "weavetab-plugin": "dist/cli.js"
   },
