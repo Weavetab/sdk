@@ -19,7 +19,7 @@ Weavetab/
 │   │   ├── intelligence/   # Delta Engine, Session Memory, Loop Detection
 │   │   ├── sensors/        # Network telemetry, mutation observers, thought HUD
 │   │   ├── security/       # Domain blacklist, RBAC roles, Blind Injection
-│   │   ├── tools/          # 50 built-in tool implementations
+│   │   ├── tools/          # 44 built-in tool implementations
 │   │   ├── overlay/        # Ghost Cursor canvas & Shadow DOM HUD injector
 │   │   ├── plugin/         # Plugin discovery and verified registry
 │   │   ├── config/         # 3-tier config loader and live reload

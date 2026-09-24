@@ -45,7 +45,7 @@ The SDK gives developers first-class access to:
 
 | Feature | Core MCP (`@weavetab/mcp`) | Developer SDK (`@weavetab/sdk`) |
 |---|---|---|
-| **Role** | Execution server & 50 built-in tools | Tool/Plugin authoring framework |
+| **Role** | Execution server & 44 built-in tools | Tool/Plugin authoring framework |
 | **Target Audience** | AI agents, users, client IDEs | Developers & plugin creators |
 | **Package** | `@weavetab/mcp@latest` | `@weavetab/sdk@latest` |
 | **Entrypoint** | `weavetab` binary | `@weavetab/sdk` library + CLI |
