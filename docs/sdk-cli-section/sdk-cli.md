@@ -43,5 +43,5 @@ weavetab publish --dry-run
 
 # Print current SDK version
 weavetab version
-# → 2.5.0-beta.5
+# → 2.5.0
 ```
