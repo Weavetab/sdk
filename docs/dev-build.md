@@ -11,8 +11,6 @@ slug: dev-build
 
 | Command | Purpose |
 |---|---|
-| Command | Purpose |
-|---|---|
 | `npm run build` | Full production build (TypeScript compilation of CLI and SDK core) |
-| `npm test` | Run full test suite |
-| `npm run test:unit` | Fast in-memory unit tests |
+| `npm test` | Run full test suite (`node --test`) |
+| `npm run sync:schema` | Sync `sdk/schema/*.json` to `website/public/schema/` (+ `v1/` aliases) |

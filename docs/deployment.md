@@ -20,13 +20,15 @@ RUN apt-get update && apt-get install -y \
 # Install Weavetab MCP globally
 RUN npm install -g @weavetab/mcp@latest
 
-ENV CHROME_PATH=/usr/bin/chromium
-EXPOSE 3000
+# Chromium is auto-detected at /usr/bin/chromium (browserPath: "auto").
+# To pin a custom binary, mount a config.json with browserPath set.
 
-CMD ["weavetab", "--ws", "--headless", "--port", "3000"]
+# stdio transport: no ports are opened, no EXPOSE needed.
+# The MCP client spawns `weavetab` and speaks JSON-RPC over stdin/stdout.
+CMD ["weavetab"]
 ```
 
 ```bash
 docker build -t weavetab-server .
-docker run -p 3000:3000 -v ~/.weavetab:/root/.weavetab weavetab-server
+docker run -v ~/.weavetab:/root/.weavetab weavetab-server
 ```

@@ -26,6 +26,12 @@ function getSdkVersion(): string {
   }
 }
 
+const SCHEMA_URL = "https://weavetab.dev/schema/plugin.json";
+const SCHEMA_FALLBACK_URL =
+  "https://raw.githubusercontent.com/weavetab/sdk/main/schema/plugin.json";
+const REGISTRY_URL = "https://weavetab.dev/api/registry/verified.json";
+const DOCS_URL = "https://weavetab.dev/docs";
+
 const args = process.argv.slice(2);
 const command = args[0] ? args[0].toLowerCase() : "";
 
@@ -49,8 +55,10 @@ function printHelp(): void {
   \x1b[32mbuild\x1b[0m                  Compile TypeScript and synchronize weavetab.json manifest
   \x1b[32mmanifest\x1b[0m (or schema)   Auto-generate MCP manifest & JSON schemas from Zod tools
   \x1b[32mdev\x1b[0m                    Start live TypeScript watch mode with manifest auto-sync
-  \x1b[32mvalidate\x1b[0m               Validate manifest schema, isolated permissions, and sandbox
+  \x1b[32mvalidate\x1b[0m [--offline]   Validate manifest schema, isolated permissions, and sandbox
   \x1b[32mdoctor\x1b[0m                 Run environment diagnostics and verify plugin health
+  \x1b[32mpublish\x1b[0m [--dry-run]    npm publish + sync to weavetab.dev registry
+  \x1b[32mtemplates\x1b[0m              List all 6 available plugin templates
   \x1b[32mversion\x1b[0m                Print current SDK version
   \x1b[32mhelp\x1b[0m                   Display this help screen
 
@@ -63,15 +71,37 @@ function printHelp(): void {
   \x1b[36m--template youtube\x1b[0m     Media automation plugin (YouTube auto-liker / navigator)
 
 \x1b[1mDOCUMENTATION & REGISTRY:\x1b[0m
-  Docs:     https://github.com/weavetab/mcp/docs/plugins
-  Registry: https://github.com/weavetab/mcp
+  Docs:     https://weavetab.dev/docs
+  Schemas:  https://weavetab.dev/schema/plugin.json
+  Registry: https://weavetab.dev/api/plugins
   SDK:      https://github.com/weavetab/sdk
 `);
 }
 
 // ---------------------------------------------------------------------------
-// TEMPLATES DEFINITION
+// TEMPLATES DEFINITION — 6 first-class professional scaffolds
 // ---------------------------------------------------------------------------
+
+export const TEMPLATE_CATALOG: Array<{ id: string; label: string; description: string }> = [
+  { id: "standard", label: "Standard", description: "Versatile plugin (Tools + Isolated Storage + HUD)" },
+  { id: "visual", label: "Visual", description: "Visual feedback & UI overlay (HUD, badges, DOM styles)" },
+  { id: "scraper", label: "Scraper", description: "Data extraction & DOM scraper with sandboxed JSON storage" },
+  { id: "automation", label: "Automation", description: "High-speed multi-step browser automation workflow" },
+  { id: "override", label: "Override", description: "Built-in tool interceptor & lifecycle hook wrapper" },
+  { id: "youtube", label: "YouTube", description: "Media automation (YouTube auto-liker / navigator)" },
+];
+
+export function isValidTemplate(t: string): boolean {
+  return TEMPLATE_CATALOG.some((x) => x.id === t.toLowerCase());
+}
+
+function printTemplates(): void {
+  console.log(`\n\x1b[1mAVAILABLE TEMPLATES:\x1b[0m`);
+  for (const t of TEMPLATE_CATALOG) {
+    console.log(`  \x1b[36m${t.id.padEnd(12)}\x1b[0m ${t.description}`);
+  }
+  console.log(`\nUsage: weavetab init my-plugin --template <id>\n`);
+}
 
 function getTemplateSource(templateType: string, pluginPkgName: string): { src: string; tools: any[]; perms: any; config: any } {
   switch (templateType.toLowerCase()) {
@@ -552,6 +582,11 @@ export default definePlugin({
 async function runInit(): Promise<void> {
   printBanner();
 
+  if (args.includes("--list") || args.includes("-l")) {
+    printTemplates();
+    return;
+  }
+
   let targetName = "";
   let templateType = "standard";
 
@@ -562,6 +597,12 @@ async function runInit(): Promise<void> {
     } else if (!targetName && !args[i].startsWith("-")) {
       targetName = args[i];
     }
+  }
+
+  if (!isValidTemplate(templateType)) {
+    console.error(`\x1b[31m[ERROR]\x1b[0m Unknown template "${templateType}".`);
+    printTemplates();
+    process.exit(1);
   }
 
   const pluginName = (targetName || "my-weavetab-plugin").trim();
@@ -581,10 +622,11 @@ async function runInit(): Promise<void> {
   const tpl = getTemplateSource(templateType, pkgName);
 
   // 1. package.json
+  const tplMeta = TEMPLATE_CATALOG.find((t) => t.id === templateType)!;
   const pkgJson = {
     name: pkgName,
     version: "1.0.0",
-    description: `A Weavetab ${templateType} plugin with isolated config, storage, and visual extension support`,
+    description: `A Weavetab ${templateType} plugin — ${tplMeta.description}`,
     main: "dist/index.js",
     types: "dist/index.d.ts",
     type: "module",
@@ -593,11 +635,12 @@ async function runInit(): Promise<void> {
       dev: "weavetab dev",
       validate: "weavetab validate",
       doctor: "weavetab doctor",
+      publish: "weavetab publish",
     },
     engines: {
       node: ">=18.0.0",
     },
-    keywords: ["weavetab", "weavetab-plugin", "mcp", "browser-automation"],
+    keywords: ["weavetab", "weavetab-plugin", "mcp", "browser-automation", `weavetab-template-${templateType}`],
     devDependencies: {
       "@weavetab/sdk": `^${sdkVer}`,
       typescript: "^5.3.0",
@@ -627,7 +670,7 @@ async function runInit(): Promise<void> {
 
   // 3. weavetab.json
   const weavetabJson = {
-    $schema: "https://raw.githubusercontent.com/weavetab/sdk/main/schema/plugin.json",
+    $schema: SCHEMA_URL,
     name: pkgJson.name,
     version: "1.0.0",
     description: pkgJson.description,
@@ -655,36 +698,86 @@ dist/
 `;
   fs.writeFileSync(path.join(targetDir, ".gitignore"), gitignore);
 
-  // 6. README.md
+  // 6. README.md (per-template, truthful)
   const readme = `# ${pkgJson.name}
 
-A ${templateType} plugin for [Weavetab](https://github.com/weavetab/mcp) built with \`@weavetab/sdk\`.
+> ${tplMeta.description}. Built with \`@weavetab/sdk\` for [Weavetab](https://weavetab.dev).
+
+## Template
+
+This plugin was scaffolded with \`weavetab init --template ${templateType}\`.
+
+| Template | Use when |
+|---|---|
+| \`standard\` | General-purpose plugin (tools + storage + HUD) |
+| \`visual\` | HUD badges, overlays, DOM styling |
+| \`scraper\` | DOM extraction with sandboxed JSON storage |
+| \`automation\` | Multi-step browser workflows |
+| \`override\` | Intercepting / wrapping built-in tools |
+| \`youtube\` | Media automation (YouTube auto-liker) |
+
+Switch templates: \`weavetab init <name> --template <id>\` · list: \`weavetab templates\`
 
 ## Architectural Guarantees
-- **Isolated Configuration**: Stored exclusively at \`~/.weavetab/plugins/${pkgJson.name}/config.json\`
-- **Sandboxed Storage**: Key-value data in \`~/.weavetab/plugins/${pkgJson.name}/storage.json\`
-- **Visual Extensions**: Floating HUD thought bubbles, badges, and DOM style injections
+- **Isolated Configuration**: \`~/.weavetab/plugins/${pkgJson.name}/config.json\`
+- **Sandboxed Storage**: key-value + JSON files under \`~/.weavetab/plugins/${pkgJson.name}/\`
+- **Permissions with reasons**: every capability in \`weavetab.json\` declares a \`reason\`
 
 ## Development
 
 \`\`\`bash
-# 1. Install dependencies
 npm install
-
-# 2. Build and synchronize weavetab.json
-npm run build
-
-# 3. Watch for changes during development
-npm run dev
+npm run build      # tsc + sync weavetab.json
+npm run dev        # watch mode
+npm run validate   # manifest + remote schema check (add --offline to skip network)
+npm run doctor     # env + schema + registry reachability
 \`\`\`
 
-## Installation into Weavetab
+## Publish
 
 \`\`\`bash
-weavetab plugin add ${pkgJson.name}
+npm run publish    # npm publish + sync to https://weavetab.dev/plugins
+# dry run first:
+weavetab publish --dry-run
 \`\`\`
+
+## Manifest
+
+See [\`weavetab.json\` schema](https://weavetab.dev/schema/plugin.json) and [docs](https://weavetab.dev/docs).
 `;
   fs.writeFileSync(path.join(targetDir, "README.md"), readme);
+
+  // 7. Smoke test — validates manifest without a framework
+  fs.mkdirSync(path.join(targetDir, "test"), { recursive: true });
+  const smokeTest = `import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const manifest = JSON.parse(fs.readFileSync(path.join(root, "weavetab.json"), "utf-8"));
+
+describe("weavetab.json manifest", () => {
+  it("has required fields", () => {
+    assert.ok(manifest.name, "missing name");
+    assert.ok(manifest.version, "missing version");
+    assert.ok(manifest.entry, "missing entry");
+    assert.ok(manifest.engines?.weavetab, "missing engines.weavetab");
+  });
+
+  it("declares $schema on weavetab.dev", () => {
+    assert.equal(manifest.$schema, "https://weavetab.dev/schema/plugin.json");
+  });
+
+  it("every permission category declares a reason", () => {
+    for (const [cat, perm] of Object.entries(manifest.permissions ?? {})) {
+      assert.ok(perm && perm.reason, "permission '" + cat + "' is missing a reason");
+    }
+  });
+});
+`;
+  fs.writeFileSync(path.join(targetDir, "test", "manifest.test.mjs"), smokeTest);
 
   console.log(`\x1b[32m✔\x1b[0m Plugin \x1b[1m${pluginName}\x1b[0m scaffolded with \x1b[36m${templateType}\x1b[0m template!`);
   console.log(`\n\x1b[1mNext steps:\x1b[0m`);
@@ -750,7 +843,7 @@ async function runBuild(): Promise<void> {
 
   const sdkVer = getSdkVersion();
 
-  manifest.$schema = manifest.$schema || "https://raw.githubusercontent.com/weavetab/sdk/main/schema/plugin.json";
+  manifest.$schema = manifest.$schema || SCHEMA_URL;
   manifest.name = pkgJson.name || manifest.name || "unnamed-plugin";
   manifest.version = pkgJson.version || manifest.version || "1.0.0";
   manifest.description = pkgJson.description || manifest.description || "";
@@ -872,8 +965,9 @@ async function runValidate(): Promise<void> {
   const cwd = process.cwd();
   const manifestPath = path.join(cwd, "weavetab.json");
   const pkgPath = path.join(cwd, "package.json");
+  const offline = args.includes("--offline");
 
-  console.log(`\n\x1b[36m[Weavetab SDK]\x1b[0m Validating plugin in [1m${cwd}[0m...\n`);
+  console.log(`\n\x1b[36m[Weavetab SDK]\x1b[0m Validating plugin in \x1b[1m${cwd}\x1b[0m...\n`);
 
   if (!fs.existsSync(manifestPath)) {
     console.error(`\x1b[31m[ERROR]\x1b[0m weavetab.json not found in ${cwd}`);
@@ -903,6 +997,28 @@ async function runValidate(): Promise<void> {
           warnings.push(`Permission category '${category}' is missing a 'reason' explanation.`);
         }
       }
+    }
+
+    // Remote schema check (skipped with --offline)
+    if (!offline) {
+      let schemaOk = false;
+      for (const url of [SCHEMA_URL, SCHEMA_FALLBACK_URL]) {
+        try {
+          const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+          if (res.ok) {
+            schemaOk = true;
+            console.log(`  \x1b[32m→\x1b[0m Remote schema reachable: ${url}`);
+            break;
+          }
+        } catch {
+          continue;
+        }
+      }
+      if (!schemaOk) {
+        warnings.push(`Remote schema unreachable (${SCHEMA_URL}). Validated locally only. Use --offline to silence.`);
+      }
+    } else {
+      console.log(`  \x1b[33m→\x1b[0m Offline mode: skipping remote schema fetch.`);
     }
 
     // Warnings output
@@ -980,6 +1096,30 @@ async function runDoctor(): Promise<void> {
   const pluginsDir = path.join(homeDir, ".weavetab", "plugins");
   checks.push({ title: "Plugin Sandbox Isolation", status: "pass", detail: `Isolated storage path: ${pluginsDir}` });
 
+  // Check 6: Schema reachability
+  try {
+    const res = await fetch(SCHEMA_URL, { signal: AbortSignal.timeout(5000) });
+    checks.push({
+      title: "Schema Reachability",
+      status: res.ok ? "pass" : "warn",
+      detail: res.ok ? `${SCHEMA_URL} reachable` : `${SCHEMA_URL} returned ${res.status}`,
+    });
+  } catch {
+    checks.push({ title: "Schema Reachability", status: "warn", detail: `${SCHEMA_URL} unreachable (offline?)` });
+  }
+
+  // Check 7: Registry reachability
+  try {
+    const res = await fetch(REGISTRY_URL, { signal: AbortSignal.timeout(5000) });
+    checks.push({
+      title: "Registry Reachability",
+      status: res.ok ? "pass" : "warn",
+      detail: res.ok ? `${REGISTRY_URL} reachable` : `${REGISTRY_URL} returned ${res.status}`,
+    });
+  } catch {
+    checks.push({ title: "Registry Reachability", status: "warn", detail: `${REGISTRY_URL} unreachable (offline?)` });
+  }
+
   // Print results
   for (const c of checks) {
     if (c.status === "pass") {
@@ -997,6 +1137,60 @@ async function runDoctor(): Promise<void> {
     console.log(`\x1b[32mAll health checks passed! Plugin development environment is optimal.\x1b[0m\n`);
   } else {
     console.log(`\x1b[31mSome diagnostics failed. Please resolve the errors above.\x1b[0m\n`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 6. PUBLISH COMMAND — npm publish + sync to weavetab.dev registry
+// ---------------------------------------------------------------------------
+
+async function runPublish(): Promise<void> {
+  const cwd = process.cwd();
+  const dryRun = args.includes("--dry-run");
+  console.log(`\n\x1b[36m[Weavetab SDK]\x1b[0m Publishing plugin in \x1b[1m${cwd}\x1b[0m...`);
+
+  const pkgPath = path.join(cwd, "package.json");
+  if (!fs.existsSync(pkgPath)) {
+    console.error(`\x1b[31m[ERROR]\x1b[0m package.json not found in ${cwd}`);
+    process.exit(1);
+  }
+  const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+  if (!pkg.name) {
+    console.error(`\x1b[31m[ERROR]\x1b[0m package.json is missing a name field.`);
+    process.exit(1);
+  }
+
+  if (dryRun) {
+    console.log(`  \x1b[33m→\x1b[0m Dry run: would run 'npm publish' then POST { packageName: "${pkg.name}" } to https://weavetab.dev/api/plugins/sync`);
+    return;
+  }
+
+  try {
+    console.log(`  \x1b[34m→\x1b[0m Running npm publish...`);
+    execSync("npm publish", { cwd, stdio: "inherit" });
+  } catch {
+    console.error(`\x1b[31m[ERROR]\x1b[0m npm publish failed. Fix the error above and retry.`);
+    process.exit(1);
+  }
+
+  try {
+    console.log(`  \x1b[34m→\x1b[0m Syncing ${pkg.name} to weavetab.dev registry...`);
+    const res = await fetch("https://weavetab.dev/api/plugins/sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ packageName: pkg.name }),
+      signal: AbortSignal.timeout(15000),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      console.error(`\x1b[31m[ERROR]\x1b[0m Registry sync failed (${res.status}): ${(data as any).error || res.statusText}`);
+      console.log(`  \x1b[33m→\x1b[0m npm package is live. Retry sync later: POST { packageName: "${pkg.name}" } to https://weavetab.dev/api/plugins/sync`);
+      process.exit(1);
+    }
+    console.log(`\x1b[32m✔ Published ${pkg.name} and synced to https://weavetab.dev/plugins\x1b[0m\n`);
+  } catch (err: any) {
+    console.error(`\x1b[31m[ERROR]\x1b[0m Registry sync failed: ${err.message}`);
+    process.exit(1);
   }
 }
 
@@ -1029,6 +1223,14 @@ async function main() {
     case "doctor":
     case "test":
       await runDoctor();
+      break;
+    case "publish":
+      await runPublish();
+      break;
+    case "templates":
+    case "list-templates":
+      printBanner();
+      printTemplates();
       break;
     case "version":
     case "-v":

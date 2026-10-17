@@ -13,7 +13,7 @@ Every Weavetab plugin includes a `weavetab.json` manifest at its root describing
 
 ```json
 {
-  "$schema": "https://raw.githubusercontent.com/weavetab/sdk/main/schema/plugin.json",
+  "$schema": "https://weavetab.dev/schema/plugin.json",
   "name": "weavetab-plugin-visual",
   "version": "1.0.0",
   "description": "Visual HUD highlights and styling plugin",

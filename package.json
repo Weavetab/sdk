@@ -1,6 +1,6 @@
 {
   "name": "@weavetab/sdk",
-  "version": "2.5.0-beta.4",
+  "version": "2.5.0-beta.5",
   "description": "Official TypeScript SDK for developing Weavetab plugins and tools.",
   "author": {
     "name": "fy2ne",
@@ -45,6 +45,7 @@
   "scripts": {
     "build": "tsc",
     "test": "node --test test/*.test.mjs",
+    "sync:schema": "node scripts/sync-schema.mjs",
     "prepublishOnly": "npm run build"
   },
   "publishConfig": {

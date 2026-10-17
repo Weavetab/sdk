@@ -74,6 +74,12 @@ npm run validate
 
 ## 5. Install into Weavetab
 
+`weavetab plugin add` installs from npm (local paths are not supported):
+
 ```bash
-weavetab plugin add ./my-custom-plugin
+# after `npm publish` (or `weavetab publish`, which also syncs the registry):
+weavetab plugin add my-custom-plugin
 ```
+
+During local development, point the runtime at your working copy instead
+(`load_plugin` with the absolute path, or copy to `~/.weavetab/plugins/`).

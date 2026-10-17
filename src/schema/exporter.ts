@@ -287,7 +287,7 @@ export function exportToolSchema(tool: any): WeavetabManifestTool {
 export function exportManifest(plugin: any, existingManifest: any = {}): any {
   const manifest = { ...existingManifest };
 
-  manifest.$schema = manifest.$schema || "https://raw.githubusercontent.com/weavetab/sdk/main/schema/plugin.json";
+  manifest.$schema = manifest.$schema || "https://weavetab.dev/schema/plugin.json";
   manifest.name = plugin.name || manifest.name || "unnamed-plugin";
   if (plugin.version) manifest.version = plugin.version;
   if (plugin.description) manifest.description = plugin.description;

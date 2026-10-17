@@ -326,6 +326,8 @@ export interface WeavetabPluginDefinition {
   removeTools?: string[];
   /** Default isolated configuration written to ~/.weavetab/plugins/<name>/config.json if not present */
   defaultConfig?: Record<string, any>;
+  /** Declared capabilities and tool/hook access permissions */
+  permissions?: WeavetabPermissions;
   /** Called when the plugin is loaded into the Weavetab runtime */
   onLoad?: (ctx: PluginContext) => Promise<void> | void;
   /** Called when the plugin is unloaded */
@@ -356,15 +358,17 @@ export interface WeavetabPermissions {
     reason?: string;
   };
   tools?: {
+    /** Must be true for the plugin to register any new MCP tools */
+    add?: boolean;
     override?: string[];
     remove?: string[];
-    hooks?: boolean;
     reason?: string;
   };
   hooks?: {
     onBeforeAction?: boolean;
     onAfterAction?: boolean;
     onDOMMutation?: boolean;
+    onPageNavigate?: boolean;
     reason?: string;
   };
   cdp?: {
@@ -389,6 +393,7 @@ export interface WeavetabPermissions {
     write?: string[];
     reason?: string;
   };
+  /** @deprecated use `filesystem` */
   fs?: {
     read?: string[];
     write?: string[];
@@ -416,7 +421,6 @@ export interface WeavetabManifest {
   authors?: Array<{ name: string; email?: string; url?: string; role?: string }>;
   engines?: Record<string, string>;
   environments?: string[];
-  lazy?: boolean;
   permissions?: WeavetabManifestPermissions;
   tools?: WeavetabManifestTool[];
   defaultConfig?: Record<string, any>;
@@ -474,6 +478,47 @@ export class PluginBuilder {
 
   defaultConfig(config: Record<string, any>): this {
     this.def.defaultConfig = { ...this.def.defaultConfig, ...config };
+    return this;
+  }
+
+  /**
+   * Set or merge explicit permissions for this plugin.
+   */
+  permissions(perms: WeavetabPermissions): this {
+    this.def.permissions = { ...(this.def.permissions || {}), ...perms };
+    return this;
+  }
+
+  /**
+   * Grant permission to register new MCP tools into the runtime.
+   */
+  allowToolAdd(): this {
+    if (!this.def.permissions) this.def.permissions = {};
+    const t = this.def.permissions.tools ?? {};
+    t.add = true;
+    this.def.permissions.tools = t;
+    return this;
+  }
+
+  /**
+   * Grant permission to override or wrap specific built-in tools.
+   */
+  allowOverride(...names: string[]): this {
+    if (!this.def.permissions) this.def.permissions = {};
+    const t = this.def.permissions.tools ?? {};
+    t.override = [...(t.override ?? []), ...names];
+    this.def.permissions.tools = t;
+    return this;
+  }
+
+  /**
+   * Grant permission to remove or disable specific built-in tools.
+   */
+  allowRemove(...names: string[]): this {
+    if (!this.def.permissions) this.def.permissions = {};
+    const t = this.def.permissions.tools ?? {};
+    t.remove = [...(t.remove ?? []), ...names];
+    this.def.permissions.tools = t;
     return this;
   }
 

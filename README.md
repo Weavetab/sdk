@@ -337,13 +337,17 @@ The `@weavetab/sdk` exposes the `weavetab`, `weavetab-sdk`, and `weavetab-plugin
 
 | Command | Description |
 |---|---|
-| `weavetab init [name] [--template <type>]` | Scaffolds a new TypeScript plugin template |
+| `weavetab init [name] [--template <type>]` | Scaffolds a new TypeScript plugin (6 templates: standard, visual, scraper, automation, override, youtube) |
+| `weavetab templates` | Lists all 6 available plugin templates |
 | `weavetab build` | Compiles TypeScript and synchronizes `weavetab.json` |
 | `weavetab manifest` / `schema` | Auto-generates `weavetab.json` manifest from Zod tool definitions & middleware hooks |
 | `weavetab dev` | Starts live TypeScript watch mode (`tsc --watch`) |
-| `weavetab validate` | Audits and validates `weavetab.json` schema and permissions |
+| `weavetab validate [--offline]` | Audits and validates `weavetab.json` schema and permissions (`--offline` skips the remote schema check) |
 | `weavetab doctor` | Runs complete developer environment diagnostics and health checks |
-| `weavetab --version` | Displays the current SDK version |
+| `weavetab publish [--dry-run]` | `npm publish` + sync to the `weavetab.dev` registry |
+| `weavetab version` | Displays the current SDK version |
+
+> Both `@weavetab/mcp` and `@weavetab/sdk` ship a `weavetab` binary. In docs, bare `weavetab <sdk-cmd>` means the SDK one — run it via `npx @weavetab/sdk <cmd>` (or the local `npm run` script) to remove ambiguity.
 
 ---
 
@@ -352,16 +356,18 @@ The `@weavetab/sdk` exposes the `weavetab`, `weavetab-sdk`, and `weavetab-plugin
 1. **Build and validate:**
    ```bash
    npm run build
-   npx weavetab validate
-   npx weavetab doctor
+   npx @weavetab/sdk validate
+   npx @weavetab/sdk doctor
    ```
-2. **Publish to npm:**
+2. **Publish to npm + sync the registry:**
    ```bash
-   npm publish --access public
+   npx @weavetab/sdk publish
+   # preview first:
+   npx @weavetab/sdk publish --dry-run
    ```
-3. **Install into Weavetab runtime:**
+3. **Install into Weavetab runtime (npm package name, not a path):**
    ```bash
-   weavetab plugin add your-plugin-name
+   weavetab plugin add your-published-package-name
    ```
 
 ---
