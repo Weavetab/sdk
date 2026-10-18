@@ -12,7 +12,7 @@ slug: sdk-cli
 The SDK exposes developer CLI commands via `npx @weavetab/sdk <command>` or local `weavetab <command>`:
 
 ```bash
-# Scaffold a new plugin (6 templates: standard, visual, scraper, automation, override, youtube)
+# Scaffold a new plugin (5 templates: standard, visual, scraper, automation, override)
 weavetab init <plugin-name> --template <template>
 # List all templates
 weavetab templates
@@ -43,5 +43,5 @@ weavetab publish --dry-run
 
 # Print current SDK version
 weavetab version
-# → 2.5.0
+# → 2.5.1
 ```

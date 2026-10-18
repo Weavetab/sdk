@@ -39,6 +39,28 @@ export const scrapeTool = defineTool({
 
 ---
 
+### Browser-less tools (`requiresSession: false`)
+
+By default the host establishes a browser/CDP session before invoking your tool, so the `session` argument is populated. API-only tools that never touch the browser (HTTP fetchers, formatters, pure compute) can opt out:
+
+```typescript
+import { defineTool, z } from "@weavetab/sdk";
+
+export const repoInfo = defineTool({
+  name: "repo_info",
+  description: "Fetches repository metadata over HTTPS — no browser needed.",
+  requiresSession: false, // handler receives session === undefined
+  schema: z.object({ repo: z.string().describe("owner/repo slug") }),
+  handler: async ({ repo }) => ({
+    content: [{ type: "text", text: `fetched ${repo}` }],
+  }),
+});
+```
+
+With `requiresSession: false` the host skips launching/connecting Chrome entirely, so the call works headlessly and never mutates the user's tabs. RBAC and rate limiting are still enforced. The official `@weavetab/plugin-github` plugin uses this flag.
+
+---
+
 ## 2. Fluent `PluginBuilder` API
 
 ```typescript

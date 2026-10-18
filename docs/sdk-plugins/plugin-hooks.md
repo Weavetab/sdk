@@ -187,4 +187,4 @@ When using middleware hooks, declare the `hooks` permission in `weavetab.json`:
 }
 ```
 
-The SDK CLI auto-generates these permissions when you run `weavetab build` or `weavetab manifest`.
+The SDK CLI auto-generates the `middleware` block when you run `weavetab build` or `weavetab manifest`.

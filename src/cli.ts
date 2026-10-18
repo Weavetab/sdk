@@ -58,7 +58,7 @@ function printHelp(): void {
   \x1b[32mvalidate\x1b[0m [--offline]   Validate manifest schema, isolated permissions, and sandbox
   \x1b[32mdoctor\x1b[0m                 Run environment diagnostics and verify plugin health
   \x1b[32mpublish\x1b[0m [--dry-run]    npm publish + sync to weavetab.dev registry
-  \x1b[32mtemplates\x1b[0m              List all 6 available plugin templates
+  \x1b[32mtemplates\x1b[0m              List all 5 available plugin templates
   \x1b[32mversion\x1b[0m                Print current SDK version
   \x1b[32mhelp\x1b[0m                   Display this help screen
 
@@ -68,7 +68,6 @@ function printHelp(): void {
   \x1b[36m--template scraper\x1b[0m     Data extraction & DOM scraper with sandboxed JSON storage
   \x1b[36m--template automation\x1b[0m  High-speed multi-step browser automation workflow
   \x1b[36m--template override\x1b[0m    Built-in tool interceptor & lifecycle hook wrapper
-  \x1b[36m--template youtube\x1b[0m     Media automation plugin (YouTube auto-liker / navigator)
 
 \x1b[1mDOCUMENTATION & REGISTRY:\x1b[0m
   Docs:     https://weavetab.dev/docs
@@ -79,7 +78,7 @@ function printHelp(): void {
 }
 
 // ---------------------------------------------------------------------------
-// TEMPLATES DEFINITION — 6 first-class professional scaffolds
+// TEMPLATES DEFINITION — 5 first-class professional scaffolds
 // ---------------------------------------------------------------------------
 
 export const TEMPLATE_CATALOG: Array<{ id: string; label: string; description: string }> = [
@@ -88,7 +87,6 @@ export const TEMPLATE_CATALOG: Array<{ id: string; label: string; description: s
   { id: "scraper", label: "Scraper", description: "Data extraction & DOM scraper with sandboxed JSON storage" },
   { id: "automation", label: "Automation", description: "High-speed multi-step browser automation workflow" },
   { id: "override", label: "Override", description: "Built-in tool interceptor & lifecycle hook wrapper" },
-  { id: "youtube", label: "YouTube", description: "Media automation (YouTube auto-liker / navigator)" },
 ];
 
 export function isValidTemplate(t: string): boolean {
@@ -116,6 +114,7 @@ function getTemplateSource(templateType: string, pluginPkgName: string): { src: 
           config: { read: true, write: true, reason: "Manages visual HUD preferences" },
           extension: { hud: true, overlay: true, styles: true, scripts: true, reason: "Renders HUD badges and injects custom styles" },
           cdp: { evaluate: true, reason: "Applies visual DOM transforms in page" },
+          tools: { add: true, reason: "Registers the highlight_elements tool" },
         },
         tools: [
           {
@@ -131,7 +130,7 @@ function getTemplateSource(templateType: string, pluginPkgName: string): { src: 
             },
           },
         ],
-        src: `import { definePlugin, type PluginContext } from "@weavetab/sdk";
+        src: `import { definePlugin, z, type PluginContext } from "@weavetab/sdk";
 
 export default definePlugin({
   name: "${pluginPkgName}",
@@ -150,12 +149,8 @@ export default definePlugin({
       name: "highlight_elements",
       description: "Highlights specific DOM elements on the active webpage with custom outline colors",
       schema: {
-        type: "object",
-        properties: {
-          selector: { type: "string", description: "CSS selector of elements to highlight" },
-          color: { type: "string", description: "Border color (e.g. #22c55e, red)" },
-        },
-        required: ["selector"],
+        selector: z.string().describe("CSS selector of elements to highlight"),
+        color: z.string().optional().describe("Border color (e.g. #22c55e, red)"),
       },
       handler: async (args: { selector: string; color?: string }, session: any) => {
         const color = args.color || "#22c55e";
@@ -197,6 +192,7 @@ export default definePlugin({
         perms: {
           config: { read: true, write: true, reason: "Controls scraping limits" },
           cdp: { evaluate: true, dom: true, reason: "Extracts DOM nodes and data" },
+          tools: { add: true, reason: "Registers the extract_table_data tool" },
         },
         tools: [
           {
@@ -212,7 +208,7 @@ export default definePlugin({
             },
           },
         ],
-        src: `import { definePlugin, type PluginContext } from "@weavetab/sdk";
+        src: `import { definePlugin, z, type PluginContext } from "@weavetab/sdk";
 
 export default definePlugin({
   name: "${pluginPkgName}",
@@ -229,12 +225,8 @@ export default definePlugin({
       name: "extract_table_data",
       description: "Scrapes structured table or list records from the active webpage and caches into isolated storage",
       schema: {
-        type: "object",
-        properties: {
-          rowSelector: { type: "string", description: "CSS selector for individual rows or cards" },
-          limit: { type: "number", description: "Max rows to extract" },
-        },
-        required: ["rowSelector"],
+        rowSelector: z.string().describe("CSS selector for individual rows or cards"),
+        limit: z.number().optional().describe("Max rows to extract"),
       },
       handler: async (args: { rowSelector: string; limit?: number }, session: any) => {
         const limit = args.limit || ctx.config.maxItems || 50;
@@ -278,10 +270,11 @@ export default definePlugin({
         },
         perms: {
           config: { read: true, write: true, reason: "Manages tool interception configuration" },
-          tools: { override: ["browser_navigate"], hooks: true, reason: "Secures browser navigation actions" },
+          tools: { override: ["browser_navigate"], reason: "Secures browser navigation actions" },
+          hooks: { onBeforeAction: true, reason: "Audits and filters every tool call" },
         },
         tools: [],
-        src: `import { definePlugin, type PluginContext } from "@weavetab/sdk";
+        src: `import { definePlugin, z, type PluginContext } from "@weavetab/sdk";
 
 export default definePlugin({
   name: "${pluginPkgName}",
@@ -327,109 +320,6 @@ export default definePlugin({
 `,
       };
 
-    case "youtube":
-      return {
-        config: {
-          autoLike: true,
-          showThought: true,
-          cooldownMs: 2000,
-        },
-        perms: {
-          config: { read: true, write: true, reason: "Stores YouTube automation preferences" },
-          extension: { hud: true, reason: "Displays like status bubble on screen" },
-          network: { domains: ["*.youtube.com", "youtu.be"], reason: "Interacts with YouTube videos" },
-          cdp: { evaluate: true, click: true, reason: "Clicks YouTube like button" },
-        },
-        tools: [
-          {
-            name: "youtube_autolike_status",
-            description: "Checks or updates the auto-like settings for YouTube videos",
-            parameters: {
-              type: "object",
-              properties: {
-                enable: { type: "boolean", description: "Toggle auto-like behavior" },
-              },
-            },
-          },
-        ],
-        src: `import { definePlugin, matchUrlPattern, sleep, type PluginContext } from "@weavetab/sdk";
-
-export default definePlugin({
-  name: "${pluginPkgName}",
-
-  defaultConfig: {
-    autoLike: true,
-    showThought: true,
-    cooldownMs: 2000,
-  },
-
-  async onLoad(ctx: PluginContext) {
-    ctx.logger.info("YouTube Automation plugin active!");
-
-    // Register status management tool
-    ctx.mcp.registerTool({
-      name: "youtube_autolike_status",
-      description: "Checks or updates the auto-like settings for YouTube videos",
-      schema: {
-        type: "object",
-        properties: {
-          enable: { type: "boolean", description: "Toggle auto-like behavior" },
-        },
-      },
-      handler: async (args: { enable?: boolean }, session: any) => {
-        if (args.enable !== undefined) {
-          ctx.config.autoLike = args.enable;
-          await ctx.storage.set("autoLike", args.enable);
-        }
-
-        const totalLiked = (await ctx.storage.get<number>("totalLiked", 0)) || 0;
-
-        return {
-          content: [
-            {
-              type: "text",
-              text: \`YouTube Auto-Like is currently \${ctx.config.autoLike ? "ENABLED" : "DISABLED"}. Total videos auto-liked: \${totalLiked}\`,
-            },
-          ],
-        };
-      },
-    });
-
-    // Hook: Trigger like routine when YouTube video URL is opened
-    ctx.hooks.onPageNavigate?.(async (url: string, session: any) => {
-      if (!ctx.config.autoLike || !session) return;
-      if (!matchUrlPattern(url, "*.youtube.com") && !matchUrlPattern(url, "youtu.be")) return;
-
-      if (url.includes("/watch") || url.includes("/shorts/")) {
-        await sleep(ctx.config.cooldownMs || 2000);
-
-        const liked = await ctx.extension.injectScript(session, \`
-          (() => {
-            const btn = document.querySelector('like-button-view-model button[aria-pressed="false"]') ||
-                        document.querySelector('#segmented-like-button button[aria-pressed="false"]');
-            if (btn) {
-              btn.click();
-              return true;
-            }
-            return false;
-          })()
-        \`);
-
-        if (liked) {
-          const count = ((await ctx.storage.get<number>("totalLiked", 0)) || 0) + 1;
-          await ctx.storage.set("totalLiked", count);
-
-          if (ctx.config.showThought) {
-            await ctx.extension.showThought(session, \`👍 Auto-liked video! (Total: \${count})\`, { durationMs: 3000 });
-          }
-        }
-      }
-    });
-  },
-});
-`,
-      };
-
     case "standard":
     default:
       return {
@@ -442,6 +332,7 @@ export default definePlugin({
           config: { read: true, write: true, reason: "Accesses isolated plugin preferences" },
           extension: { hud: true, overlay: true, styles: true, scripts: true, reason: "Displays visual HUD feedback" },
           cdp: { evaluate: true, click: true, navigate: true, reason: "Executes automation in browser context" },
+          tools: { add: true, reason: "Registers the example_action tool" },
         },
         tools: [
           {
@@ -456,7 +347,7 @@ export default definePlugin({
             },
           },
         ],
-        src: `import { definePlugin, type PluginContext } from "@weavetab/sdk";
+        src: `import { definePlugin, z, type PluginContext } from "@weavetab/sdk";
 
 export default definePlugin({
   name: "${pluginPkgName}",
@@ -475,14 +366,7 @@ export default definePlugin({
       name: "example_action",
       description: "An example custom tool registered by this plugin with visual HUD feedback",
       schema: {
-        type: "object",
-        properties: {
-          message: {
-            type: "string",
-            description: "A message to echo back and display on the screen",
-          },
-        },
-        required: ["message"],
+        message: z.string().describe("A message to echo back and display on the screen"),
       },
       handler: async (args: { message: string }, session: any) => {
         // Track invocations in isolated persistent storage (~/.weavetab/plugins/${pluginPkgName}/storage.json)
@@ -528,7 +412,8 @@ export default definePlugin({
         },
         perms: {
           cdp: { evaluate: true, navigate: true, click: true, reason: "Executes multi-step automation sequences" },
-          filesystem: { read: ["*"], write: ["*"], reason: "Reads input files and writes outputs" }
+          filesystem: { read: ["*"], write: ["*"], reason: "Reads input files and writes outputs" },
+          tools: { add: true, reason: "Registers the run_automation tool" },
         },
         tools: [
           {
@@ -543,7 +428,7 @@ export default definePlugin({
             }
           }
         ],
-        src: `import { definePlugin, type PluginContext } from "@weavetab/sdk";
+        src: `import { definePlugin, z, type PluginContext } from "@weavetab/sdk";
 
 export default definePlugin({
   name: "${pluginPkgName}",
@@ -555,11 +440,7 @@ export default definePlugin({
       name: "run_automation",
       description: "Runs a custom multi-step automation workflow",
       schema: {
-        type: "object",
-        properties: {
-          target: { type: "string" },
-        },
-        required: ["target"],
+        target: z.string().describe("Target to automate"),
       },
       handler: async (args, session) => {
         ctx.logger.info(\`Running automation on \${args.target}\`);
@@ -636,13 +517,16 @@ async function runInit(): Promise<void> {
       validate: "weavetab validate",
       doctor: "weavetab doctor",
       publish: "weavetab publish",
+      test: "node --test test/*.test.mjs",
     },
     engines: {
       node: ">=18.0.0",
     },
     keywords: ["weavetab", "weavetab-plugin", "mcp", "browser-automation", `weavetab-template-${templateType}`],
-    devDependencies: {
+    dependencies: {
       "@weavetab/sdk": `^${sdkVer}`,
+    },
+    devDependencies: {
       typescript: "^5.3.0",
     },
   };
@@ -714,7 +598,6 @@ This plugin was scaffolded with \`weavetab init --template ${templateType}\`.
 | \`scraper\` | DOM extraction with sandboxed JSON storage |
 | \`automation\` | Multi-step browser workflows |
 | \`override\` | Intercepting / wrapping built-in tools |
-| \`youtube\` | Media automation (YouTube auto-liker) |
 
 Switch templates: \`weavetab init <name> --template <id>\` · list: \`weavetab templates\`
 

@@ -43,6 +43,13 @@ export interface DefinedTool<TSchema = any, TReturn = any> {
   schema?: TSchema;
   parameters?: any;
   inputSchema?: any;
+  /**
+   * When `false`, the host skips establishing a browser/CDP session before
+   * invoking this tool — the handler receives `session === undefined`.
+   * Use for API-only tools that never touch the browser (e.g. HTTP fetchers).
+   * Defaults to `true`. RBAC and rate limiting are still enforced.
+   */
+  requiresSession?: boolean;
   handler: (
     args: InferToolArgs<TSchema>,
     session?: any,
@@ -79,6 +86,8 @@ export interface McpToolRegistration<TArgs = any> {
   description: string;
   schema?: McpToolSchema | Record<string, any>;
   parameters?: McpToolSchema | Record<string, any>;
+  /** See {@link DefinedTool.requiresSession}. Defaults to `true`. */
+  requiresSession?: boolean;
   handler: (
     args: TArgs,
     session?: any,
@@ -661,7 +670,7 @@ export function formatDuration(ms: number): string {
 }
 
 /**
- * Utility to match a URL against domain patterns (e.g. `*.youtube.com`, `youtu.be`).
+ * Utility to match a URL against domain patterns (e.g. `*.example.com`, `example.org`).
  */
 export function matchUrlPattern(url: string, pattern: string): boolean {
   try {

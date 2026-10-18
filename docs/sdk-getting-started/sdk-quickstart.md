@@ -82,4 +82,4 @@ weavetab plugin add my-custom-plugin
 ```
 
 During local development, point the runtime at your working copy instead
-(`load_plugin` with the absolute path, or copy to `~/.weavetab/plugins/`).
+by copying it into `~/.weavetab/plugins/` and restarting the server. There is no `load_plugin` MCP tool; plugin lifecycle is managed through the CLI.

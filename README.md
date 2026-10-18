@@ -28,7 +28,7 @@ With `@weavetab/sdk`, you can:
 
 `@weavetab/sdk` shares **identical version numbering** with `@weavetab/mcp`:
 * **Unified SemVer:** `@weavetab/sdk@2.5.x` matches `@weavetab/mcp@2.5.x`.
-* **Zero Confusion:** When specifying `"engines": { "weavetab": "^2.5.0" }` in your `weavetab.json`, install `@weavetab/sdk@^2.5.0`.
+* **Zero Confusion:** When specifying `"engines": { "weavetab": "^2.5.1" }` in your `weavetab.json`, install `@weavetab/sdk@^2.5.1`.
 
 ---
 
@@ -36,7 +36,7 @@ With `@weavetab/sdk`, you can:
 
 ### 1. Scaffold a New Plugin Template
 
-Choose from 6 enterprise starter templates:
+Choose from 5 enterprise starter templates:
 
 ```bash
 # Standard versatile plugin (Tools + Storage + HUD)
@@ -50,9 +50,6 @@ npx -y @weavetab/sdk init my-scraper-plugin --template scraper
 
 # Security tool interceptor & hook plugin
 npx -y @weavetab/sdk init my-guard-plugin --template override
-
-# YouTube / Media auto-interaction plugin
-npx -y @weavetab/sdk init my-youtube-plugin --template youtube
 ```
 
 ### 2. Available Starter Templates
@@ -64,7 +61,6 @@ npx -y @weavetab/sdk init my-youtube-plugin --template youtube
 | `scraper` | Data Extraction | CDP evaluation, DOM extraction, `storage.setJSON` |
 | `automation` | Browser Automations | Multi-step workflows, forms, navigations |
 | `override` | Security & Interception | `overrideTool("browser_navigate")`, `beforeToolCall` |
-| `youtube` | Media Automations | URL pattern matching, CDP auto-like, video controls |
 
 ### 3. Project Structure
 
@@ -283,7 +279,7 @@ const files = await ctx.storage.list("data");
 // 1. Show an animated floating thought bubble
 await ctx.extension.showThought(
   session,
-  "✨ Automatically liked YouTube Video!",
+  "✨ Automation step complete!",
   { durationMs: 3500 }
 );
 
@@ -337,8 +333,8 @@ The `@weavetab/sdk` exposes the `weavetab`, `weavetab-sdk`, and `weavetab-plugin
 
 | Command | Description |
 |---|---|
-| `weavetab init [name] [--template <type>]` | Scaffolds a new TypeScript plugin (6 templates: standard, visual, scraper, automation, override, youtube) |
-| `weavetab templates` | Lists all 6 available plugin templates |
+| `weavetab init [name] [--template <type>]` | Scaffolds a new TypeScript plugin (5 templates: standard, visual, scraper, automation, override) |
+| `weavetab templates` | Lists all 5 available plugin templates |
 | `weavetab build` | Compiles TypeScript and synchronizes `weavetab.json` |
 | `weavetab manifest` / `schema` | Auto-generates `weavetab.json` manifest from Zod tool definitions & middleware hooks |
 | `weavetab dev` | Starts live TypeScript watch mode (`tsc --watch`) |

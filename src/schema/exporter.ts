@@ -295,7 +295,7 @@ export function exportManifest(plugin: any, existingManifest: any = {}): any {
 
   if (!manifest.engines) {
     manifest.engines = {
-      weavetab: "^2.5.0",
+      weavetab: "^2.5.1",
       node: ">=18.0.0",
     };
   }
@@ -304,14 +304,19 @@ export function exportManifest(plugin: any, existingManifest: any = {}): any {
     manifest.environments = ["mcp"];
   }
 
-  // Export static tools
+  // Export static tools. Tools registered dynamically at runtime (via ctx.mcp.registerTool)
+  // cannot be introspected at build time, so preserve any tools already declared in the manifest.
   const tools: WeavetabManifestTool[] = [];
   if (Array.isArray(plugin.tools)) {
     for (const tool of plugin.tools) {
       tools.push(exportToolSchema(tool));
     }
   }
-  manifest.tools = tools;
+  if (tools.length > 0) {
+    manifest.tools = tools;
+  } else if (!Array.isArray(manifest.tools)) {
+    manifest.tools = [];
+  }
 
   // Export declared interceptor middleware hooks if defined
   const middleware: Record<string, boolean> = {};

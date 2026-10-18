@@ -19,7 +19,7 @@ Every Weavetab plugin includes a `weavetab.json` manifest at its root describing
   "description": "Visual HUD highlights and styling plugin",
   "entry": "dist/index.js",
   "engines": {
-    "weavetab": "^2.5.0",
+    "weavetab": "^2.5.1",
     "node": ">=18.0.0"
   },
   "environments": ["mcp"],
@@ -51,7 +51,9 @@ Every Weavetab plugin includes a `weavetab.json` manifest at its root describing
     }
   },
   "middleware": {
-    "hooks": ["onBeforeAction", "onAfterAction", "onDOMMutation"]
+    "onBeforeAction": true,
+    "onAfterAction": true,
+    "onDOMMutation": true
   },
   "tools": [
     {
@@ -81,5 +83,6 @@ Every Weavetab plugin includes a `weavetab.json` manifest at its root describing
 | `cdp` | Granular CDP capabilities (`evaluate`, `dom`, `click`, `navigate`, `network`, `screenshot`). |
 | `network` | Specific allowed domain and host glob patterns. |
 | `filesystem` | Restricted read/write path access outside the plugin's isolated folder. |
+| `tools` | Tool authoring capabilities: `add` (register new MCP tools), `override` (wrap listed built-ins), `remove` (disable listed built-ins). |
 | `hooks` | Permission to register enterprise middleware interceptors (`onBeforeAction`, `onAfterAction`, `onDOMMutation`). |
 
