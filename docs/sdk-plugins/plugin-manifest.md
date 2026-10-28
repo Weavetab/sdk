@@ -11,10 +11,13 @@ slug: plugin-manifest
 
 Every Weavetab plugin includes a `weavetab.json` manifest at its root describing its metadata, engine requirements, permissions, and tools.
 
+`name` must be the npm package id (lowercase, no spaces; the schema enforces this). To control the title shown on weavetab.dev, set the optional `displayName` (max 60 characters). Without it, the registry derives a title from `name`.
+
 ```json
 {
   "$schema": "https://weavetab.dev/schema/plugin.json",
   "name": "weavetab-plugin-visual",
+  "displayName": "Visual HUD",
   "version": "1.0.0",
   "description": "Visual HUD highlights and styling plugin",
   "entry": "dist/index.js",

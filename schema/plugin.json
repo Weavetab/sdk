@@ -15,6 +15,11 @@
       "description": "Unique plugin package name (e.g., '@acme/weavetab-plugin', 'my-plugin').",
       "pattern": "^(?:@[a-z0-9-*~][a-z0-9-*._~]*/)?[a-z0-9-~][a-z0-9-._~]*$"
     },
+    "displayName": {
+      "type": "string",
+      "description": "Human-readable title shown on weavetab.dev (e.g., 'GitHub'). Optional. When absent the registry derives one from name.",
+      "maxLength": 60
+    },
     "version": {
       "type": "string",
       "description": "Semantic version string (e.g., '1.0.0')."

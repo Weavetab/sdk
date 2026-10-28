@@ -423,6 +423,7 @@ export interface WeavetabManifestTool {
 export interface WeavetabManifest {
   $schema?: string;
   name: string;
+  displayName?: string;
   version: string;
   description?: string;
   entry?: string;
