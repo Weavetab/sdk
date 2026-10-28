@@ -14,17 +14,17 @@ Scaffold a production-grade TypeScript plugin in seconds using the SDK CLI.
 ## 1. Scaffold a Plugin Project
 
 ```bash
-npx -y @weavetab/sdk@latest init my-custom-plugin --template standard
+npx -y @weavetab/sdk@latest init my-custom-plugin
 cd my-custom-plugin
 npm install
 ```
 
-## 2. Explore the Scaffolding Layout
+## 2. Project Layout
 
 ```
 my-custom-plugin/
 ├── src/
-│   └── index.ts        # Plugin implementation
+│   └── index.ts        # Plugin implementation & tool definitions
 ├── weavetab.json       # Manifest declaring tools & permissions
 ├── package.json        # Dependencies & scripts
 ├── tsconfig.json       # TypeScript compiler options
@@ -34,31 +34,30 @@ my-custom-plugin/
 ## 3. Implement Your Tool
 
 ```typescript
-import { definePlugin, type PluginContext } from "@weavetab/sdk";
+import { definePlugin, defineTool, z, type PluginContext } from "@weavetab/sdk";
 
 export default definePlugin({
   name: "my-custom-plugin",
   async onLoad(ctx: PluginContext) {
-    ctx.mcp.registerTool({
-      name: "greet_page",
-      description: "Greets the user and shows a thought bubble on the active browser tab",
-      schema: {
-        type: "object",
-        properties: {
-          name: { type: "string", description: "Your name" }
+    ctx.mcp.registerTool(
+      defineTool({
+        name: "greet_page",
+        description: "Greets the user and displays a thought bubble on the active tab",
+        requiresSession: true,
+        schema: {
+          name: z.string().describe("Target name to greet"),
         },
-        required: ["name"]
-      },
-      handler: async (args: { name: string }, session: any) => {
-        if (session) {
-          await ctx.extension.showThought(session, `Hello, ${args.name}! Welcome to Weavetab.`);
-        }
-        return {
-          content: [{ type: "text", text: `Greeting dispatched to ${args.name}!` }]
-        };
-      }
-    });
-  }
+        handler: async (args, session) => {
+          if (session) {
+            await ctx.extension.showThought(session, `Hello, ${args.name}! Welcome to Weavetab.`);
+          }
+          return {
+            content: [{ type: "text", text: `Greeting dispatched to ${args.name}!` }],
+          };
+        },
+      })
+    );
+  },
 });
 ```
 
@@ -69,17 +68,19 @@ export default definePlugin({
 npm run build
 
 # Validate schema compliance
-npm run validate
+npx @weavetab/sdk validate
 ```
 
 ## 5. Install into Weavetab
 
-`weavetab plugin add` installs from npm (local paths are not supported):
+Install your plugin directly using the Weavetab CLI. Both local workspace directories and published npm packages are supported:
 
 ```bash
-# after `npm publish` (or `weavetab publish`, which also syncs the registry):
+# Local development install:
+weavetab plugin add ./my-custom-plugin
+
+# Or after publishing to npm:
 weavetab plugin add my-custom-plugin
 ```
 
-During local development, point the runtime at your working copy instead
-by copying it into `~/.weavetab/plugins/` and restarting the server. There is no `load_plugin` MCP tool; plugin lifecycle is managed through the CLI.
+Installed plugins are stored globally under `~/.weavetab/plugins/` and automatically loaded whenever your IDE or agent connects to Weavetab MCP.
