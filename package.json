@@ -8,13 +8,13 @@
     "url": "https://fy2ne.me"
   },
   "license": "MIT",
-  "homepage": "https://github.com/weavetab/sdk",
+  "homepage": "https://github.com/Weavetab/sdk",
   "repository": {
     "type": "git",
-    "url": "https://github.com/weavetab/sdk.git"
+    "url": "git+https://github.com/Weavetab/sdk.git"
   },
   "bugs": {
-    "url": "https://github.com/weavetab/sdk/issues"
+    "url": "https://github.com/Weavetab/sdk/issues"
   },
   "engines": {
     "node": "^20.19.0 || ^22.12.0 || >=23"
