@@ -1,8 +1,8 @@
 /**
  * @weavetab/sdk
- * Official Enterprise TypeScript SDK for developing Weavetab plugins, tools, isolated storage, and visual extensions.
+ * Official TypeScript SDK for developing Weavetab plugins, tools, isolated storage, and visual extensions.
  *
- * Copyright (c) 2026 fy2ne. Licensed under the MIT License.
+ * Copyright (c) 2026 fy2ne <hello@fy2ne.me>. Licensed under the MIT License.
  */
 
 import { z } from "zod";

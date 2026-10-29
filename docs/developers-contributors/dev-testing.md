@@ -1,6 +1,6 @@
 ---
 title: "Testing Suites"
-description: "Unit, integration, E2E, and benchmark tests."
+description: "SDK schema tests and MCP runtime test suites."
 product: sdk
 section: developers-contributors
 icon: FlaskConical
@@ -10,17 +10,18 @@ slug: dev-testing
 # Testing Suites
 
 ```
-tests/
-├── unit/           # Unit tests (Zod schemas, delta engine, config merge)
-├── integration/    # CDP connection and security pipeline tests
-├── e2e/            # Smoke tests running real browser automation
-└── benchmarks/     # Latency and token efficiency benchmarks
+sdk/test/
+└── schema.test.mjs     # Zod-to-JSON-Schema exporter & manifest validation tests
+
+MCP/tests/
+├── unit/               # Core engine unit tests (walker, delta, cache, plugins, security)
+└── e2e/                # Live Chromium automation smoke tests
 ```
 
 ```bash
-# Run unit tests
-npm run test:unit
-
-# Run full test suite
+# Run SDK test suite (inside /sdk)
 npm test
+
+# Run MCP unit test suite (inside /MCP)
+npm run test:unit
 ```

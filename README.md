@@ -1,26 +1,26 @@
 # @weavetab/sdk
 
-> Official Enterprise TypeScript SDK and Developer Toolkit for building plugins, tools, isolated configurations, and visual extensions for **[Weavetab](https://github.com/weavetab/mcp)**.
+> Official TypeScript SDK and Developer Toolkit for building plugins, tools, isolated configurations, and visual extensions for **[Weavetab](https://github.com/weavetab/mcp)**.
 
 [![npm version](https://img.shields.io/npm/v/@weavetab/sdk.svg?style=flat-square)](https://www.npmjs.com/package/@weavetab/sdk)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
-[![Status: Beta](https://img.shields.io/badge/status-beta-f59e0b.svg?style=flat-square)](https://github.com/weavetab/mcp)
+[![Status: Stable](https://img.shields.io/badge/status-stable-10b981.svg?style=flat-square)](https://github.com/weavetab/sdk)
 
 ---
 
 ## ⚡ Overview
 
-`@weavetab/sdk` is the official developer SDK for building modular, enterprise-grade plugins that extend the **Weavetab Model Context Protocol (MCP)** runtime.
+`@weavetab/sdk` is the official developer SDK for building modular plugins that extend the **Weavetab Model Context Protocol (MCP)** runtime.
 
 With `@weavetab/sdk`, you can:
 - 🛠️ **Zod Schema Exporter & Typegen**: Define MCP tools using 100% pure TypeScript + Zod (`defineTool`, `z`). Zero manual JSON schema writing — automatically exported to `weavetab.json`.
-- 🛡️ **Enterprise Middleware Hooks**: Intercept every tool executed across the browser runtime with `onBeforeAction` (ad-blocking, auth injection), `onAfterAction` (PII redaction, DLP), and `onDOMMutation` (live change streams).
+- 🛡️ **Middleware & Interceptor Hooks**: Intercept every tool executed across the browser runtime with `onBeforeAction` (ad-blocking, auth injection), `onAfterAction` (PII redaction, DLP), and `onDOMMutation` (live change streams).
 - 🛠️ **Register Custom MCP Tools**: Expose new automation, scraping, or API tools directly to AI coding agents (Claude, Gemini, Cursor, Copilot, Antigravity).
 - ⚙️ **Isolated Plugin Configurations**: Maintain dedicated `~/.weavetab/plugins/<name>/config.json` without modifying core settings.
 - 💾 **Sandboxed Persistent Storage**: Store key-value data and JSON files safely inside `~/.weavetab/plugins/<name>/`.
 - 🎨 **Chrome Extension & Visual HUD**: Show animated thought bubbles (`showThought`), update HUD status badges (`setHudState`), inject custom CSS (`injectStyles`), and execute scripts.
 - 🔀 **Override Built-in Tools**: Wrap or replace existing Weavetab tools (e.g. `browser_eval`, `browser_click`, `browser_navigate`).
-- 🏗️ **Fluent `PluginBuilder` API**: Write clean, enterprise-grade plugin definitions with fluent chaining.
+- 🏗️ **Fluent `PluginBuilder` API**: Write clean, strongly-typed plugin definitions with fluent chaining.
 
 ---
 
@@ -28,7 +28,7 @@ With `@weavetab/sdk`, you can:
 
 `@weavetab/sdk` shares **identical version numbering** with `@weavetab/mcp`:
 * **Unified SemVer:** `@weavetab/sdk@2.5.x` matches `@weavetab/mcp@2.5.x`.
-* **Zero Confusion:** When specifying `"engines": { "weavetab": "^2.5.1" }` in your `weavetab.json`, install `@weavetab/sdk@^2.5.1`.
+* **Zero Confusion:** When specifying `"engines": { "weavetab": "^2.5.2" }` in your `weavetab.json`, install `@weavetab/sdk@^2.5.2`.
 
 ---
 
@@ -36,7 +36,7 @@ With `@weavetab/sdk`, you can:
 
 ### 1. Scaffold a New Plugin Template
 
-Choose from 5 enterprise starter templates:
+Choose from 5 starter templates:
 
 ```bash
 # Standard versatile plugin (Tools + Storage + HUD)

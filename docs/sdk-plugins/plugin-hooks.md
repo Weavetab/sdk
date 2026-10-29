@@ -1,17 +1,17 @@
 ---
 title: "Plugin Middleware & Hooks"
-description: "Enterprise interceptor hooks: onBeforeAction, onAfterAction, and onDOMMutation."
+description: "Interceptor hooks: onBeforeAction, onAfterAction, and onDOMMutation."
 product: sdk
 section: sdk-plugins
 icon: ShieldAlert
 slug: plugin-hooks
 ---
 
-# Enterprise Middleware & Interceptor Hooks
+# Plugin Middleware & Interceptor Hooks
 
-Weavetab plugins do not just register isolated tools. Through the enterprise interceptor pipeline, plugins act as **middleware** running beneath every MCP tool call executed by AI agents across web and desktop contexts.
+Weavetab plugins do not just register isolated tools. Through the interceptor pipeline, plugins act as **middleware** running beneath every MCP tool call executed by AI agents across web and desktop contexts.
 
-This unlocks powerful enterprise capabilities:
+Common use cases:
 - **Automated Ad & Tracker Blocking**: Block navigations or clicks targeting known advertising or phishing domains.
 - **Enterprise Auth Injection**: Automatically inject OAuth tokens, session cookies, or custom headers before actions execute.
 - **Data Loss Prevention (DLP) & PII Scrubbing**: Inspect, mask, or redact sensitive fields (SSNs, credit cards, bearer tokens) in tool results before the agent receives them.

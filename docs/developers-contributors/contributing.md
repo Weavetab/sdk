@@ -22,5 +22,5 @@ We welcome contributions from the community!
 ## Code Guidelines
 
 - All tools must adhere to strict Zod runtime argument validation.
-- Every tool action must execute through the `withSecurity()` pipeline.
+- Plugin manifests (`weavetab.json`) must explicitly declare required runtime permissions.
 - Maintain zero-cloud computation: no remote data transmissions without explicit opt-in.

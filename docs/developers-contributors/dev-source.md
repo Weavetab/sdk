@@ -13,9 +13,9 @@ Weavetab is organized into a clean multi-package monorepo:
 
 ```
 Weavetab/
-├── MCP/                    # Core Model Context Protocol server (@weavetab/mcp v2.5.1)
+├── MCP/                    # Core Model Context Protocol server (@weavetab/mcp v2.5.2)
 │   ├── src/
-│   │   ├── cdp/            # Direct Chrome DevTools Protocol Layer 0 bridge
+│   │   ├── cdp/            # Direct Chrome DevTools Protocol (CDP) bridge
 │   │   ├── intelligence/   # Delta Engine, Session Memory, Loop Detection
 │   │   ├── sensors/        # Network telemetry, mutation observers, thought HUD
 │   │   ├── security/       # Domain blacklist, RBAC roles, Blind Injection
@@ -25,12 +25,12 @@ Weavetab/
 │   │   ├── config/         # 3-tier config loader and live reload
 │   │   ├── cli/            # Interactive wizard and CLI subcommands
 │   │   └── server.ts       # MCP JSON-RPC server entrypoint
-├── sdk/                    # Developer SDK (@weavetab/sdk v2.5.1)
+├── sdk/                    # Developer SDK (@weavetab/sdk v2.5.2)
 │   ├── src/
 │   │   ├── index.ts        # PluginBuilder, definePlugin, types, interfaces
 │   │   └── cli.ts          # Developer CLI (init, build, dev, validate, doctor)
-├── skills/                 # Agent Skills Ecosystem (@weavetab/skills v2.5.1)
-│   ├── general/            # Markdown skill recipes with YAML frontmatter
+├── skills/                 # Agent Skills Ecosystem (@weavetab/skills v2.5.2)
+│   ├── [category]/         # Domain skill bundles (browser, desktop, memory, etc.)
 │   └── bin/cli.js          # Interactive skills injector
 └── website/                # Documentation & Marketing Website (React 19 + Vite)
 ```

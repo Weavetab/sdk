@@ -508,6 +508,7 @@ async function runInit(): Promise<void> {
     name: pkgName,
     version: "1.0.0",
     description: `A Weavetab ${templateType} plugin — ${tplMeta.description}`,
+    license: "MIT",
     main: "dist/index.js",
     types: "dist/index.d.ts",
     type: "module",
@@ -619,7 +620,7 @@ npm run doctor     # env + schema + registry reachability
 ## Publish
 
 \`\`\`bash
-npm run publish    # npm publish + sync to https://weavetab.dev/plugins
+npm run publish    # npm publish + sync to https://weavetab.dev/discover
 # dry run first:
 weavetab publish --dry-run
 \`\`\`
@@ -932,7 +933,7 @@ async function runValidate(): Promise<void> {
 async function runDoctor(): Promise<void> {
   printBanner();
   const cwd = process.cwd();
-  console.log(`\x1b[36m[Weavetab Doctor]\x1b[0m Running enterprise plugin diagnostics in [1m${cwd}[0m...\n`);
+  console.log(`\x1b[36m[Weavetab Doctor]\x1b[0m Running plugin diagnostics in [1m${cwd}[0m...\n`);
 
   const checks: Array<{ title: string; status: "pass" | "warn" | "fail"; detail: string }> = [];
 
@@ -1070,7 +1071,7 @@ async function runPublish(): Promise<void> {
       console.log(`  \x1b[33m→\x1b[0m npm package is live. Retry sync later: POST { packageName: "${pkg.name}" } to https://weavetab.dev/api/plugins/sync`);
       process.exit(1);
     }
-    console.log(`\x1b[32m✔ Published ${pkg.name} and synced to https://weavetab.dev/plugins\x1b[0m\n`);
+    console.log(`\x1b[32m✔ Published ${pkg.name} and synced to https://weavetab.dev/discover\x1b[0m\n`);
   } catch (err: any) {
     console.error(`\x1b[31m[ERROR]\x1b[0m Registry sync failed: ${err.message}`);
     process.exit(1);

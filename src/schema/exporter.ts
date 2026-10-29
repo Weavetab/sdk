@@ -295,7 +295,7 @@ export function exportManifest(plugin: any, existingManifest: any = {}): any {
 
   if (!manifest.engines) {
     manifest.engines = {
-      weavetab: "^2.5.1",
+      weavetab: "^2.5.2",
       node: ">=18.0.0",
     };
   }

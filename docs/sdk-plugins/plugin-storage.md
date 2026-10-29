@@ -34,7 +34,7 @@ const data = await ctx.storage.getJSON("scraped_products.json");
 
 // 3. Isolated Path Resolution (Path-Traversal Protected)
 const filePath = ctx.storage.getPath("scraped_products.json");
-// → "/home/user/.weavetab/plugins/my-plugin/scraped_products.json"
+// → "~/.weavetab/plugins/my-plugin/scraped_products.json"
 
 // 4. File Listing
 const files = await ctx.storage.list();
