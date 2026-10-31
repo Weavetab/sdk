@@ -26,6 +26,9 @@ weavetab schema
 # Live TypeScript watch mode with manifest auto-sync
 weavetab dev
 
+# Run preflight audit before publishing (manifest, permissions, anti-squatting)
+weavetab preflight
+
 # Validate schema, permissions, and sandbox compliance (--offline skips network)
 weavetab validate
 

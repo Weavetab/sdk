@@ -22,7 +22,7 @@ Every Weavetab plugin includes a `weavetab.json` manifest at its root describing
   "description": "Visual HUD highlights and styling plugin",
   "entry": "dist/index.js",
   "engines": {
-    "weavetab": "^2.5.2",
+    "weavetab": ">=2.6.0",
     "node": ">=18.0.0"
   },
   "environments": ["mcp"],

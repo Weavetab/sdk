@@ -27,8 +27,8 @@ With `@weavetab/sdk`, you can:
 ## 🔢 Version Alignment (1:1 with MCP)
 
 `@weavetab/sdk` shares **identical version numbering** with `@weavetab/mcp`:
-* **Unified SemVer:** `@weavetab/sdk@2.5.x` matches `@weavetab/mcp@2.5.x`.
-* **Zero Confusion:** When specifying `"engines": { "weavetab": "^2.5.2" }` in your `weavetab.json`, install `@weavetab/sdk@^2.5.2`.
+* **Unified SemVer:** `@weavetab/sdk@2.6.x` matches `@weavetab/mcp@2.6.x`.
+* **Zero Confusion:** When specifying `"engines": { "weavetab": ">=2.6.0" }` in your `weavetab.json`, install `@weavetab/sdk@^2.6.0`.
 
 ---
 
@@ -327,6 +327,36 @@ ctx.mcp.overrideTool("browser_eval", async (args, session, config, originalHandl
 
 ---
 
+
+---
+
+## 🧪 Unit Testing & Preflight Verification
+
+`@weavetab/sdk` includes a built-in headless testing harness and preflight auditor so you can test plugins without launching Chrome or establishing live CDP connections:
+
+```typescript
+import test from "node:test";
+import assert from "node:assert/strict";
+import { createMockContext, simulateToolCall } from "@weavetab/sdk/testing";
+import { runPreflight } from "@weavetab/sdk/preflight";
+
+test("plugin passes preflight audit", async () => {
+  const audit = await runPreflight(process.cwd());
+  assert.equal(audit.success, true);
+});
+
+test("simulates tool execution", async () => {
+  const ctx = createMockContext({
+    config: { key: "value" },
+    mockTabUrl: "https://example.com",
+  });
+
+  const res = await simulateToolCall(myTool, { param: "value" }, ctx);
+  assert.equal(res.isError, undefined);
+  assert.ok(res.content.length > 0);
+});
+```
+
 ## 💻 Developer CLI Reference
 
 The `@weavetab/sdk` exposes the `weavetab`, `weavetab-sdk`, and `weavetab-plugin` binaries:
@@ -338,6 +368,7 @@ The `@weavetab/sdk` exposes the `weavetab`, `weavetab-sdk`, and `weavetab-plugin
 | `weavetab build` | Compiles TypeScript and synchronizes `weavetab.json` |
 | `weavetab manifest` / `schema` | Auto-generates `weavetab.json` manifest from Zod tool definitions & middleware hooks |
 | `weavetab dev` | Starts live TypeScript watch mode (`tsc --watch`) |
+| `weavetab preflight` | Audits plugin readiness before publish (manifest, permissions, anti-squatting) |
 | `weavetab validate [--offline]` | Audits and validates `weavetab.json` schema and permissions (`--offline` skips the remote schema check) |
 | `weavetab doctor` | Runs complete developer environment diagnostics and health checks |
 | `weavetab publish [--dry-run]` | `npm publish` + sync to the `weavetab.dev` registry |
