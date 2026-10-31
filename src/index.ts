@@ -6,9 +6,15 @@
  */
 
 import { z } from "zod";
+import { TabClient } from "./tab.js";
+import { DesktopClient } from "./desktop.js";
 export { z };
 export * from "./schema/exporter.js";
 export * from "./version.js";
+export * from "./tab.js";
+export * from "./desktop.js";
+export * from "./testing.js";
+export * from "./preflight.js";
 
 export interface McpToolSchema {
   type: "object";
@@ -37,6 +43,17 @@ export type InferToolArgs<TSchema> = TSchema extends z.ZodRawShape
   ? z.infer<TSchema>
   : any;
 
+export interface ToolExecutionContext<TConfig = any> {
+  tab?: TabClient;
+  desktop?: DesktopClient;
+  storage: PluginStorage;
+  config: TConfig;
+  logger?: PluginLogger;
+  signal?: AbortSignal;
+  session?: any;
+  [key: string]: any;
+}
+
 export interface DefinedTool<TSchema = any, TReturn = any> {
   name: string;
   description: string;
@@ -52,7 +69,7 @@ export interface DefinedTool<TSchema = any, TReturn = any> {
   requiresSession?: boolean;
   handler: (
     args: InferToolArgs<TSchema>,
-    session?: any,
+    contextOrSession?: ToolExecutionContext | any,
     config?: any
   ) => Promise<McpToolResult | Record<string, any> | string | void>;
 }
@@ -129,6 +146,10 @@ export interface PluginStorage {
   getPath(subpath?: string): string;
   /** Lists files inside the plugin's isolated directory */
   list(subpath?: string): Promise<string[]>;
+  setWithExpiry<T = any>(key: string, value: T, ttlMs: number): Promise<void>;
+  getWithExpiry<T = any>(key: string): Promise<T | null>;
+  remember<T = any>(key: string, ttlMs: number, resolver: () => Promise<T>): Promise<T>;
+  clear(): Promise<void>;
 }
 
 export interface PluginExtensionBridge {
@@ -313,6 +334,12 @@ export interface PluginContext {
   [key: string]: any;
 }
 
+export function defineOverride<TArgs = any>(
+  definition: ToolOverrideDefinition<TArgs>
+): ToolOverrideDefinition<TArgs> {
+  return definition;
+}
+
 export interface ToolOverrideDefinition<TArgs = any> {
   name: string;
   description?: string;
@@ -353,6 +380,10 @@ export interface WeavetabPluginDefinition {
 }
 
 export interface WeavetabPermissions {
+  desktop?: {
+    apps?: string[];
+    reason?: string;
+  };
   config?: {
     read?: boolean;
     write?: boolean;

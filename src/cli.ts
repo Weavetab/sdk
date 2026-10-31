@@ -12,6 +12,7 @@ import { execSync, spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import { exportManifest } from "./schema/exporter.js";
+import { runPreflight } from "./preflight.js";
 
 import { WEAVETAB_VERSION } from "./version.js";
 
@@ -56,6 +57,7 @@ function printHelp(): void {
   \x1b[32mmanifest\x1b[0m (or schema)   Auto-generate MCP manifest & JSON schemas from Zod tools
   \x1b[32mdev\x1b[0m                    Start live TypeScript watch mode with manifest auto-sync
   \x1b[32mvalidate\x1b[0m [--offline]   Validate manifest schema, isolated permissions, and sandbox
+  \x1b[32mpreflight\x1b[0m              Run complete pre-publish verification suite
   \x1b[32mdoctor\x1b[0m                 Run environment diagnostics and verify plugin health
   \x1b[32mpublish\x1b[0m [--dry-run]    npm publish + sync to weavetab.dev registry
   \x1b[32mtemplates\x1b[0m              List all 5 available plugin templates
@@ -1082,6 +1084,31 @@ async function runPublish(): Promise<void> {
 // ROUTER
 // ---------------------------------------------------------------------------
 
+async function runPreflightCmd(): Promise<void> {
+  printBanner();
+  console.log(`\x1b[36m[Weavetab SDK]\x1b[0m Running plugin preflight verification...\n`);
+  const res = runPreflight(process.cwd());
+
+  if (res.warnings.length > 0) {
+    console.log(`\x1b[33m[WARNINGS]\x1b[0m`);
+    for (const w of res.warnings) {
+      console.log(`  \x1b[33m!\x1b[0m ${w}`);
+    }
+    console.log();
+  }
+
+  if (res.errors.length > 0) {
+    console.log(`\x1b[31m[ERRORS]\x1b[0m`);
+    for (const e of res.errors) {
+      console.log(`  \x1b[31m✖\x1b[0m ${e}`);
+    }
+    console.log(`\n\x1b[31m[FAIL]\x1b[0m Plugin failed preflight checks. Fix errors before publishing.\n`);
+    process.exit(1);
+  }
+
+  console.log(`\x1b[32m✔\x1b[0m All preflight checks passed. Plugin is ready for publication.\n`);
+}
+
 async function main() {
   switch (command) {
     case "init":
@@ -1107,6 +1134,9 @@ async function main() {
     case "doctor":
     case "test":
       await runDoctor();
+      break;
+    case "preflight":
+      await runPreflightCmd();
       break;
     case "publish":
       await runPublish();

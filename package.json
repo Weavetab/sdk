@@ -1,6 +1,6 @@
 {
   "name": "@weavetab/sdk",
-  "version": "2.5.2",
+  "version": "2.6.0",
   "description": "Official TypeScript SDK for developing Weavetab plugins and tools.",
   "author": {
     "name": "fy2ne",
@@ -30,6 +30,14 @@
     "./schema": {
       "import": "./dist/schema/exporter.js",
       "types": "./dist/schema/exporter.d.ts"
+    },
+    "./testing": {
+      "import": "./dist/testing.js",
+      "types": "./dist/testing.d.ts"
+    },
+    "./preflight": {
+      "import": "./dist/preflight.js",
+      "types": "./dist/preflight.d.ts"
     },
     "./schema/plugin.json": "./schema/plugin.json",
     "./schema/tool.json": "./schema/tool.json"
