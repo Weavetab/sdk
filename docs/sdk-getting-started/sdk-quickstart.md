@@ -57,6 +57,32 @@ export default definePlugin({
         },
       })
     );
+
+    // Register a `/` slash command (MCP Prompt)
+    ctx.mcp.registerPrompt?.(
+      definePrompt({
+        name: "greet_summary",
+        description: "Prepares an AI briefing for the active tab",
+        arguments: {
+          style: z.string().optional().describe("Briefing style: bullet or paragraph"),
+        },
+        handler: async ({ style }, { tab }) => {
+          const url = (await tab?.url()) || "unknown";
+          return `Prepare a ${style || "bullet"} briefing for ${url}.`;
+        },
+      })
+    );
+
+    // Register an `@` context resource (MCP Resource)
+    ctx.mcp.registerResource?.(
+      defineResource({
+        name: "tab_info",
+        uri: "custom://tab-info",
+        description: "Live metadata for the active tab",
+        mimeType: "application/json",
+        read: async () => JSON.stringify({ active: true, timestamp: Date.now() }, null, 2),
+      })
+    );
   },
 });
 ```
