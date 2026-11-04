@@ -144,6 +144,42 @@ Every plugin's `onLoad` handler receives a `PluginContext` instance containing:
 | `ctx.config` | `Record<string, any>` | Configuration parsed from `~/.weavetab/plugins/<name>/config.json`. |
 | `ctx.storage` | `PluginStorage` | Isolated persistent key-value and JSON file storage API. |
 | `ctx.extension` | `PluginExtensionBridge` | Direct bridge to in-browser HUD overlays and styles. |
-| `ctx.mcp` | `PluginMcpContext` | Tool registration, override, and unregistration API. |
+| `ctx.mcp` | `PluginMcpContext` | Tool, `/` command (`registerPrompt`), `@` mention (`registerResource`), and override API. |
+
+---
+
+## 5. `/` Commands (`definePrompt`) & `@` Mentions (`defineResource`)
+
+In MCP-compatible clients (Claude Desktop, Cursor, Windsurf, Antigravity, Zed), **MCP Prompts** appear as `/` slash commands and **MCP Resources** appear as `@` mentions.
+
+```typescript
+import { definePrompt, defineResource, z } from "@weavetab/sdk";
+
+export const watchCommand = definePrompt({
+  name: "realtime_watch",
+  description: "Switch the agent into 60Hz reflex monitoring mode",
+  arguments: {
+    goal: z.string().optional().describe("Target interaction or game rule"),
+  },
+  handler: async ({ goal }, { tab }) => {
+    const url = (await tab?.url()) || "no active tab";
+    return `Active tab: ${url}. Goal: ${goal || "sample canvas and arm reflex rules"}.`;
+  },
+});
+
+export const stateMention = defineResource({
+  name: "realtime-state",
+  uri: "realtime://state",
+  description: "Live probe, canvas recorder, and reflex status for the current tab",
+  mimeType: "application/json",
+  read: async (uri, _vars, { tab }) => {
+    if (!tab?.isAvailable()) return JSON.stringify({ attached: false });
+    const snap = await tab.evaluate("window.__wt_rf ? window.__wt_rf.snap() : []");
+    return JSON.stringify({ uri, reflexes: snap }, null, 2);
+  },
+});
+```
+
+For dynamic `@` mentions with parameters, pass `uriTemplate` (RFC 6570, e.g. `"realtime://reflex/{id}"`), an optional `list(ctx)` callback to populate the `@` picker, and an optional `complete: { id: (prefix) => [...] }` map for live argument autocomplete. When a plugin unloads, all of its prompts and resources are removed from the MCP server automatically.
 | `ctx.hooks` | `PluginHooks` | Interceptors and lifecycle hooks (`onBeforeAction`, `onAfterAction`, `onDOMMutation`). |
 | `ctx.logger` | `PluginLogger` | Scoped logger with info, warn, error, and debug levels. |

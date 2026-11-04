@@ -83,6 +83,8 @@ export function createMockContext(opts: MockContextOptions = {}): PluginContext 
   });
 
   const registeredTools: any[] = [];
+  const registeredPrompts: any[] = [];
+  const registeredResources: any[] = [];
   const registeredOverrides: any[] = [];
 
   return {
@@ -104,6 +106,10 @@ export function createMockContext(opts: MockContextOptions = {}): PluginContext 
       restoreOverlay: async () => {},
     } as PluginExtensionBridge,
     mcp: {
+      registerPrompt: (p) => registeredPrompts.push(p),
+      registerResource: (r) => registeredResources.push(r),
+      unregisterPrompt: () => {},
+      unregisterResource: () => {},
       registerTool: (tool) => registeredTools.push(tool),
       overrideTool: (toolName, handler) => registeredOverrides.push({ toolName, handler }),
       removeTool: () => {},

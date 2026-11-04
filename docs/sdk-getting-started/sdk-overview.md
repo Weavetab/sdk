@@ -33,7 +33,7 @@ bun add -d @weavetab/sdk@latest
 ## SDK Core Architecture
 
 The SDK gives developers first-class access to:
-1. **Tool Registration & Interception**: Register new MCP tools or wrap/override existing built-in tools (`ctx.mcp.overrideTool`).
+1. **Tool, `/` Command & `@` Mention Registration**: Register new MCP tools (`registerTool`), `/` slash commands (`registerPrompt`), `@` context mentions with URI templates & autocomplete (`registerResource`), or wrap existing built-in tools (`overrideTool`).
 2. **Sandboxed Storage**: Private key-value store and JSON files at `~/.weavetab/plugins/<name>/`.
 3. **In-Browser Visual Extensions**: Display animated thought bubbles (`showThought`), status badges (`setHudState`), and inject custom CSS/JS.
 4. **Lifecycle Hooks**: Intercept actions before or after execution (`beforeToolCall`, `afterToolCall`, `onPageNavigate`).

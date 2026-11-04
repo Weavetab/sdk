@@ -87,5 +87,48 @@ Every Weavetab plugin includes a `weavetab.json` manifest at its root describing
 | `network` | Specific allowed domain and host glob patterns. |
 | `filesystem` | Restricted read/write path access outside the plugin's isolated folder. |
 | `tools` | Tool authoring capabilities: `add` (register new MCP tools), `override` (wrap listed built-ins), `remove` (disable listed built-ins). |
+| `prompts` | `/` command authoring capability: `{ "add": true, "reason": "..." }`. |
+| `resources` | `@` mention authoring capability: `{ "add": true, "reason": "..." }`. |
 | `hooks` | Permission to register enterprise middleware interceptors (`onBeforeAction`, `onAfterAction`, `onDOMMutation`). |
+
+---
+
+## Declaring `prompts` and `resources` in `weavetab.json`
+
+List your plugin's `/` commands under `prompts` and `@` mentions under `resources` so the Weavetab `/discover` registry indexes them:
+
+```json
+{
+  "permissions": {
+    "prompts": { "add": true, "reason": "Registers the /realtime_watch slash command." },
+    "resources": { "add": true, "reason": "Exposes @realtime-state and @realtime-reflex mentions." }
+  },
+  "prompts": [
+    {
+      "name": "realtime_watch",
+      "description": "Prime the agent to sample canvas entities and arm a 60Hz reflex rule.",
+      "arguments": {
+        "type": "object",
+        "properties": {
+          "goal": { "type": "string", "description": "Target rule or game objective" }
+        }
+      }
+    }
+  ],
+  "resources": [
+    {
+      "name": "realtime-state",
+      "uri": "realtime://state",
+      "description": "Current page probe, canvas frame count, and active reflex rules.",
+      "mimeType": "application/json"
+    },
+    {
+      "name": "realtime-reflex",
+      "uriTemplate": "realtime://reflex/{id}",
+      "description": "Single reflex rule telemetry by rule id.",
+      "mimeType": "application/json"
+    }
+  ]
+}
+```
 

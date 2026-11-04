@@ -119,7 +119,85 @@ export type ToolOverrideHandler<TArgs = any> = (
   originalHandler?: (args: TArgs, session?: any, config?: any) => Promise<any>
 ) => Promise<any>;
 
+export interface PluginSurfaceContext<TConfig = Record<string, any>> {
+  tab?: TabClient;
+  storage: PluginStorage;
+  config: TConfig;
+  logger: PluginLogger;
+}
+
+export type PromptReturn =
+  | string
+  | {
+      description?: string;
+      messages: Array<{ role: "user" | "assistant"; content: string | { type: "text"; text: string } }>;
+    };
+
+export type ResourceReturn =
+  | string
+  | { text: string; mimeType?: string }
+  | { blob: string; mimeType?: string }
+  | { contents: Array<{ uri?: string; text?: string; blob?: string; mimeType?: string }> };
+
+export interface ListedResource {
+  uri: string;
+  name: string;
+  description?: string;
+  mimeType?: string;
+}
+
+export interface DefinedPrompt<TArgs extends Record<string, any> = Record<string, string>> {
+  name: string;
+  title?: string;
+  description?: string;
+  /** Zod raw shape (string fields) or JSON Schema. MCP prompt arguments travel as strings. */
+  arguments?: TArgs;
+  handler: (
+    args: InferToolArgs<TArgs>,
+    ctx: PluginSurfaceContext
+  ) => Promise<PromptReturn> | PromptReturn;
+}
+
+export function definePrompt<TArgs extends Record<string, any> = Record<string, string>>(
+  definition: DefinedPrompt<TArgs>
+): DefinedPrompt<TArgs> {
+  return definition;
+}
+
+export interface DefinedResource {
+  name: string;
+  title?: string;
+  description?: string;
+  mimeType?: string;
+  /** Fixed URI, e.g. `realtime://state`. Provide either `uri` or `uriTemplate`. */
+  uri?: string;
+  /** RFC 6570 URI template, e.g. `realtime://reflex/{id}`. */
+  uriTemplate?: string;
+  /** Template only: concrete resources shown in the `@` picker. */
+  list?: (ctx: PluginSurfaceContext) => Promise<ListedResource[]> | ListedResource[];
+  /** Template only: autocomplete handler per `{variable}`. */
+  complete?: Record<string, (value: string) => Promise<string[]> | string[]>;
+  /** Reads resource content when selected via `@`. `vars` is empty for fixed URIs. */
+  read: (
+    uri: string,
+    vars: Record<string, string | string[]>,
+    ctx: PluginSurfaceContext
+  ) => Promise<ResourceReturn> | ResourceReturn;
+}
+
+export function defineResource(definition: DefinedResource): DefinedResource {
+  return definition;
+}
+
 export interface PluginMcpContext {
+  /** Register a `/` command (MCP prompt) */
+  registerPrompt: (prompt: DefinedPrompt<any>) => void;
+  /** Register an `@` mention (MCP resource or resource template) */
+  registerResource: (resource: DefinedResource) => void;
+  /** Unregister a `/` command by name */
+  unregisterPrompt?: (name: string) => void;
+  /** Unregister an `@` mention by fixed URI or template name */
+  unregisterResource?: (uriOrName: string) => void;
   /** Register a new MCP tool into the Weavetab runtime */
   registerTool: <T = any>(tool: McpToolRegistration<T>) => void;
   /** Override or wrap an existing built-in tool (e.g. browser_eval, browser_navigate, browser_click) */
@@ -356,6 +434,10 @@ export interface WeavetabPluginDefinition {
   description?: string;
   /** Static tool registrations */
   tools?: Array<DefinedTool | McpToolRegistration>;
+  /** Static `/` command (MCP prompt) registrations */
+  prompts?: Array<DefinedPrompt<any>>;
+  /** Static `@` mention (MCP resource) registrations */
+  resources?: DefinedResource[];
   /** Static tool overrides */
   overrides?: ToolOverrideDefinition[];
   /** Built-in tools to remove */
@@ -380,6 +462,16 @@ export interface WeavetabPluginDefinition {
 }
 
 export interface WeavetabPermissions {
+  prompts?: {
+    /** Must be true for the plugin to register `/` commands (MCP prompts) */
+    add?: boolean;
+    reason?: string;
+  };
+  resources?: {
+    /** Must be true for the plugin to register `@` mentions (MCP resources) */
+    add?: boolean;
+    reason?: string;
+  };
   desktop?: {
     apps?: string[];
     reason?: string;
@@ -451,6 +543,20 @@ export interface WeavetabManifestTool {
   schema?: Record<string, any>;
 }
 
+export interface WeavetabManifestPrompt {
+  name: string;
+  description?: string;
+  arguments?: Record<string, any>;
+}
+
+export interface WeavetabManifestResource {
+  name: string;
+  uri?: string;
+  uriTemplate?: string;
+  description?: string;
+  mimeType?: string;
+}
+
 export interface WeavetabManifest {
   $schema?: string;
   name: string;
@@ -464,6 +570,8 @@ export interface WeavetabManifest {
   environments?: string[];
   permissions?: WeavetabManifestPermissions;
   tools?: WeavetabManifestTool[];
+  prompts?: WeavetabManifestPrompt[];
+  resources?: WeavetabManifestResource[];
   defaultConfig?: Record<string, any>;
   keywords?: string[];
   homepage?: string;
@@ -500,6 +608,8 @@ export class PluginBuilder {
     this.def = {
       name,
       tools: [],
+      prompts: [],
+      resources: [],
       overrides: [],
       removeTools: [],
       defaultConfig: {},
@@ -563,9 +673,33 @@ export class PluginBuilder {
     return this;
   }
 
+  allowPromptAdd(): this {
+    if (!this.def.permissions) this.def.permissions = {};
+    this.def.permissions.prompts = { ...(this.def.permissions.prompts ?? {}), add: true };
+    return this;
+  }
+
+  allowResourceAdd(): this {
+    if (!this.def.permissions) this.def.permissions = {};
+    this.def.permissions.resources = { ...(this.def.permissions.resources ?? {}), add: true };
+    return this;
+  }
+
   addTool<TArgs = any>(tool: McpToolRegistration<TArgs>): this {
     if (!this.def.tools) this.def.tools = [];
     this.def.tools.push(tool);
+    return this;
+  }
+
+  addPrompt<TArgs extends Record<string, any> = Record<string, string>>(prompt: DefinedPrompt<TArgs>): this {
+    if (!this.def.prompts) this.def.prompts = [];
+    this.def.prompts.push(prompt);
+    return this;
+  }
+
+  addResource(resource: DefinedResource): this {
+    if (!this.def.resources) this.def.resources = [];
+    this.def.resources.push(resource);
     return this;
   }
 
