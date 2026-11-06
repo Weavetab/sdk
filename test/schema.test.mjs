@@ -135,4 +135,16 @@ describe("SDK Schema Exporter & Typegen", () => {
     assert.ok(toolSchema.title);
     assert.equal(toolSchema.title, "WeavetabToolSchema");
   });
+
+  it("exports in-manifest instructions and honors context budget", () => {
+    const builder = new PluginBuilder("instructions-plugin")
+      .version("1.0.0")
+      .instructions("Operational instructions for AI agents interacting with this plugin.");
+
+    const def = builder.build();
+    assert.equal(def.instructions, "Operational instructions for AI agents interacting with this plugin.");
+
+    const manifest = exportManifest(def);
+    assert.equal(manifest.instructions, "Operational instructions for AI agents interacting with this plugin.");
+  });
 });

@@ -1,112 +1,264 @@
 ---
-title: "SDK Quickstart"
-description: "Scaffold and build a TypeScript plugin in 60 seconds."
+title: "Quickstart"
+description: "Step-by-step guide to scaffolding, building, testing, and verifying a Weavetab plugin."
 product: sdk
 section: sdk-getting-started
+order: 2
 icon: Rocket
 slug: sdk-quickstart
 ---
 
-# SDK Quickstart
+# Plugin Developer Quickstart
 
-Scaffold a production-grade TypeScript plugin in seconds using the SDK CLI.
+Build and verify a production-ready Weavetab plugin in under two minutes.
 
-## 1. Scaffold a Plugin Project
+---
+
+## 1. Scaffold the Project
+
+Run the SDK interactive scaffolding tool:
 
 ```bash
-npx -y @weavetab/sdk@latest init my-custom-plugin
-cd my-custom-plugin
+npx @weavetab/sdk init my-weavetab-plugin
+cd my-weavetab-plugin
 npm install
 ```
 
-## 2. Project Layout
+The CLI creates a preconfigured project with TypeScript strict mode, Zod validation, and a schema-compliant `weavetab.json` with embedded agent instructions:
 
 ```
-my-custom-plugin/
+my-weavetab-plugin/
 ├── src/
-│   └── index.ts        # Plugin implementation & tool definitions
-├── weavetab.json       # Manifest declaring tools & permissions
-├── package.json        # Dependencies & scripts
-├── tsconfig.json       # TypeScript compiler options
-└── README.md
+│   └── index.ts          # Plugin entrypoint (tools, commands, utilities)
+├── tests/
+│   └── index.test.ts     # Offline test harness using @weavetab/sdk/testing
+├── weavetab.json         # Manifest declaring tools, commands, instructions, and permissions
+├── package.json          # Dependencies & build scripts
+├── tsconfig.json         # Strict TypeScript configuration
+└── README.md             # Human-facing installation instructions
 ```
 
-## 3. Implement Your Tool
+---
+
+## 2. Implement the Plugin
+
+Open `src/index.ts`. Every plugin registers capabilities through `definePlugin`:
 
 ```typescript
-import { definePlugin, defineTool, z, type PluginContext } from "@weavetab/sdk";
+import {
+  definePlugin,
+  defineTool,
+  defineCommand,
+  definePrompt,
+  defineResource,
+  z,
+  type PluginContext
+} from "@weavetab/sdk";
 
 export default definePlugin({
-  name: "my-custom-plugin",
+  name: "my-weavetab-plugin",
+  version: "1.0.0",
+  description: "Production plugin demonstrating tools, CLI commands, and utilities",
+  instructions: "Extracts OpenGraph, title, and meta descriptions from active browser tab. Run extract_metadata after page navigation completes.",
+
+  defaultConfig: {
+    maxRetries: 3,
+    verbose: false,
+  },
+
   async onLoad(ctx: PluginContext) {
+    // 1. Register an MCP Tool (called by AI agents)
     ctx.mcp.registerTool(
       defineTool({
-        name: "greet_page",
-        description: "Greets the user and displays a thought bubble on the active tab",
+        name: "extract_metadata",
+        description: "Extracts OpenGraph and Twitter card metadata from the active tab",
         requiresSession: true,
         schema: {
-          name: z.string().describe("Target name to greet"),
+          includeFavicon: z.boolean().default(false).describe("Include favicon URL in output"),
         },
         handler: async (args, session) => {
-          if (session) {
-            await ctx.extension.showThought(session, `Hello, ${args.name}! Welcome to Weavetab.`);
+          if (!session) {
+            throw new Error("Active browser tab required.");
           }
+
+          // Evaluate script in the tab context
+          const data = await session.evaluate(`(() => {
+            const get = (sel) => document.querySelector(sel)?.getAttribute('content') || null;
+            return {
+              title: document.title,
+              description: get('meta[name="description"]') || get('meta[property="og:description"]'),
+              ogImage: get('meta[property="og:image"]'),
+              canonical: document.querySelector('link[rel="canonical"]')?.getAttribute('href') || window.location.href,
+            };
+          })()`);
+
+          // Show in-browser HUD thought bubble
+          await ctx.extension.showThought(session, `Extracted metadata for ${data.title}`);
+
           return {
-            content: [{ type: "text", text: `Greeting dispatched to ${args.name}!` }],
+            content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
           };
         },
       })
     );
 
-    // Register a `/` slash command (MCP Prompt)
-    ctx.mcp.registerPrompt?.(
-      definePrompt({
-        name: "greet_summary",
-        description: "Prepares an AI briefing for the active tab",
-        arguments: {
-          style: z.string().optional().describe("Briefing style: bullet or paragraph"),
+    // 2. Register a CLI Command (called via terminal)
+    ctx.cli.registerCommand(
+      defineCommand({
+        name: "check-config",
+        description: "Prints active configuration and storage state to stdout",
+        usage: "weavetab plugin use my-weavetab-plugin check-config [--json]",
+        schema: {
+          json: { type: "boolean", description: "Output as raw JSON" },
         },
-        handler: async ({ style }, { tab }) => {
-          const url = (await tab?.url()) || "unknown";
-          return `Prepare a ${style || "bullet"} briefing for ${url}.`;
+        handler: async (args) => {
+          const stored = await ctx.storage.list();
+          const payload = {
+            plugin: ctx.name,
+            version: ctx.version,
+            config: ctx.config,
+            storedKeysCount: stored.length,
+          };
+
+          if (args.json) {
+            return payload;
+          }
+
+          console.log(`Plugin: ${payload.plugin} v${payload.version}`);
+          console.log(`Stored Keys: ${payload.storedKeysCount}`);
+          return payload;
         },
       })
     );
 
-    // Register an `@` context resource (MCP Resource)
-    ctx.mcp.registerResource?.(
-      defineResource({
-        name: "tab_info",
-        uri: "custom://tab-info",
-        description: "Live metadata for the active tab",
-        mimeType: "application/json",
-        read: async () => JSON.stringify({ active: true, timestamp: Date.now() }, null, 2),
+    // 3. Register a Prompt Utility (/ slash command in MCP clients)
+    ctx.mcp.registerPrompt(
+      definePrompt({
+        name: "audit_seo",
+        description: "Generate an SEO optimization plan for the active page",
+        arguments: {
+          targetKeyword: z.string().describe("Primary keyword target"),
+        },
+        handler: async ({ targetKeyword }, { tab }) => {
+          const title = (await tab?.evaluate("document.title")) || "Unknown Page";
+          return `Perform an SEO audit on "${title}" targeting keyword "${targetKeyword}". Check title tags, meta descriptions, heading hierarchy, and image alt text.`;
+        },
       })
     );
+
+    // 4. Register a Resource Utility (@ context mention in MCP clients)
+    ctx.mcp.registerResource(
+      defineResource({
+        name: "plugin-telemetry",
+        uri: "metadata://telemetry",
+        description: "Runtime telemetry and invocation counters",
+        mimeType: "application/json",
+        read: async () => {
+          const keys = await ctx.storage.list();
+          return JSON.stringify({ keys, uptimeSec: process.uptime() }, null, 2);
+        },
+      })
+    );
+  },
+
+  async onUnload(ctx: PluginContext) {
+    ctx.logger.info("Plugin unloaded cleanly.");
   },
 });
 ```
 
-## 4. Build and Validate
+---
+
+## 3. Configure `weavetab.json`
+
+Grant the necessary permissions in your manifest:
+
+```json
+{
+  "$schema": "https://weavetab.dev/schema/plugin.json",
+  "name": "my-weavetab-plugin",
+  "version": "1.0.0",
+  "description": "Production plugin demonstrating tools, CLI commands, and utilities",
+  "entry": "dist/index.js",
+  "instructions": "Extracts OpenGraph, title, and meta descriptions from active browser tab. Run extract_metadata after page navigation completes.",
+  "engines": {
+    "weavetab": ">=2.6.2",
+    "node": ">=18.0.0"
+  },
+  "permissions": {
+    "tools": {
+      "add": true,
+      "reason": "Registers the extract_metadata tool."
+    },
+    "commands": {
+      "add": true,
+      "reason": "Registers the check-config CLI command."
+    },
+    "prompts": {
+      "add": true,
+      "reason": "Registers the /audit_seo prompt shortcut."
+    },
+    "resources": {
+      "add": true,
+      "reason": "Exposes @metadata://telemetry context resource."
+    },
+    "extension": {
+      "hud": true,
+      "reason": "Displays floating thought bubbles during metadata extraction."
+    },
+    "cdp": {
+      "evaluate": true,
+      "reason": "Evaluates page DOM queries to extract meta tags."
+    }
+  }
+}
+```
+
+---
+
+## 4. Declare Agent Instructions
+
+Instructions can be declared directly in `weavetab.json` under `"instructions": string` (max 3,200 characters) or passed to `definePlugin({ instructions })`. No separate `AGENTS.md` file is needed:
+
+```json
+{
+  "instructions": "Run extract_metadata only after page navigation has completed. For headless CLI checks, invoke weavetab plugin use my-weavetab-plugin check-config --json."
+}
+```
+
+---
+
+## 5. Build, Validate & Test
+
+Compile TypeScript and synchronize the manifest:
 
 ```bash
-# Build TypeScript and synchronize manifest
+# 1. Compile and auto-sync weavetab.json
 npm run build
 
-# Validate schema compliance
+# 2. Run preflight security and instructions budget audit
+npx @weavetab/sdk preflight
+
+# 3. Validate against official JSON schema
 npx @weavetab/sdk validate
+
+# 4. Run unit tests
+npm test
 ```
 
-## 5. Install into Weavetab
+---
 
-Install your plugin directly using the Weavetab CLI. Both local workspace directories and published npm packages are supported:
+## 6. Test with Weavetab CLI
+
+Test your plugin directly in the terminal before publishing:
 
 ```bash
-# Local development install:
-weavetab plugin add ./my-custom-plugin
+# Inspect registered tools, commands, utilities, and instructions
+weavetab plugin use .
 
-# Or after publishing to npm:
-weavetab plugin add my-custom-plugin
+# Execute your CLI command
+weavetab plugin use . check-config --json
+
+# Read the agent instructions
+weavetab plugin use . instructions
 ```
-
-Installed plugins are stored globally under `~/.weavetab/plugins/` and automatically loaded whenever your IDE or agent connects to Weavetab MCP.

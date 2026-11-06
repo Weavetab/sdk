@@ -1,0 +1,40 @@
+name: Bug Report
+description: Create a report to help us improve the Weavetab SDK
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report an issue with `@weavetab/sdk`!
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the bug
+      description: A clear and concise description of what went wrong in the SDK runtime or schema.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: To Reproduce
+      description: Steps or code snippet reproducing the problem.
+      placeholder: |
+        import { Weavetab } from '@weavetab/sdk';
+        // Snippet reproducing issue
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What you expected to happen.
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Node/Bun version, OS, browser version, stack traces.
+    validations:
+      required: false

@@ -32,6 +32,15 @@
       "type": "string",
       "description": "Entry point file relative to the plugin root (e.g., 'dist/index.js'). Defaults to 'dist/index.js' or package.json main."
     },
+    "instructions": {
+      "type": "string",
+      "description": "Operational instructions, heuristics, and guidance for AI agents interacting with this plugin. Strictly capped to prevent context window overflow (max 3200 characters, ~80 lines).",
+      "maxLength": 3200
+    },
+    "agentsMd": {
+      "type": "string",
+      "description": "Legacy fallback: relative path to an AI agent playbook file (defaults to 'AGENTS.md'). Prefer declaring 'instructions' directly in weavetab.json."
+    },
     "author": {
       "description": "Plugin author name or author object with contact details.",
       "oneOf": [
@@ -77,7 +86,7 @@
       "properties": {
         "weavetab": {
           "type": "string",
-          "description": "Semver range of compatible Weavetab versions (e.g., '^2.6.0')."
+          "description": "Semver range of compatible Weavetab versions (e.g., '^2.6.2')."
         },
         "node": {
           "type": "string",
@@ -168,6 +177,27 @@
                 "reason": { "type": "string" }
               }
             },
+            "commands": {
+              "type": "object",
+              "properties": {
+                "add": { "type": "boolean", "description": "Permission to register CLI commands invoked via 'weavetab plugin use <plugin> <cmd>'." },
+                "reason": { "type": "string" }
+              }
+            },
+            "prompts": {
+              "type": "object",
+              "properties": {
+                "add": { "type": "boolean", "description": "Permission to register '/' prompt utilities (MCP prompts)." },
+                "reason": { "type": "string" }
+              }
+            },
+            "resources": {
+              "type": "object",
+              "properties": {
+                "add": { "type": "boolean", "description": "Permission to register '@' resource utilities (MCP resources)." },
+                "reason": { "type": "string" }
+              }
+            },
             "hooks": {
               "type": "object",
               "description": "Permissions for registering lifecycle and interceptor middleware hooks.",
@@ -210,6 +240,56 @@
           "parameters": { "type": "object" },
           "inputSchema": { "type": "object" },
           "schema": { "type": "object" }
+        }
+      }
+    },
+    "commands": {
+      "type": "array",
+      "description": "Statically declared CLI commands exposed by the plugin (invoked via 'weavetab plugin use <plugin> <command>').",
+      "items": {
+        "type": "object",
+        "required": ["name", "description"],
+        "properties": {
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "usage": { "type": "string" },
+          "parameters": { "type": "object" },
+          "schema": { "type": "object" },
+          "examples": { "type": "array", "items": { "type": "string" } },
+          "requiresSession": { "type": "boolean" }
+        }
+      }
+    },
+    "prompts": {
+      "type": "array",
+      "description": "Statically declared '/' prompt utilities (MCP prompts) exposed by the plugin.",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "arguments": {
+            "oneOf": [
+              { "type": "object" },
+              { "type": "array", "items": { "type": "object" } }
+            ]
+          }
+        }
+      }
+    },
+    "resources": {
+      "type": "array",
+      "description": "Statically declared '@' resource utilities (MCP resources) exposed by the plugin.",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string" },
+          "uri": { "type": "string" },
+          "uriTemplate": { "type": "string" },
+          "description": { "type": "string" },
+          "mimeType": { "type": "string" }
         }
       }
     },

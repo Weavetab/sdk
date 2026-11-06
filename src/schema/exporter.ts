@@ -36,6 +36,15 @@ export interface WeavetabManifestTool {
   schema?: JsonSchemaObject;
 }
 
+export interface WeavetabManifestCommandExport {
+  name: string;
+  description: string;
+  usage?: string;
+  parameters?: JsonSchemaObject;
+  examples?: string[];
+  requiresSession?: boolean;
+}
+
 /**
  * Converts a Zod type or a ZodRawShape into a standard JSON Schema draft-07 object.
  */
@@ -44,9 +53,7 @@ export function zodToJsonSchema(schema: any): JsonSchemaProperty {
     return { type: "object", properties: {} };
   }
 
-  // If already a plain JSON Schema object (not an instance of ZodType)
   if (typeof schema === "object" && !("_def" in schema) && !schema._def) {
-    // If it looks like a raw shape: { key: z.string() }
     const values = Object.values(schema);
     const hasZodFields = values.some((v: any) => v && typeof v === "object" && "_def" in v);
     if (hasZodFields) {
@@ -236,7 +243,6 @@ function convertZodType(schema: any): JsonSchemaProperty {
 
     case "ZodAny":
     case "ZodUnknown": {
-      // Empty schema allows any value
       break;
     }
 
@@ -265,7 +271,6 @@ export function exportToolSchema(tool: any): WeavetabManifestTool {
     parameters = zodToJsonSchema(tool.inputSchema) as JsonSchemaObject;
   }
 
-  // Ensure type is object
   if (!parameters.type) {
     parameters.type = "object";
   }
@@ -282,6 +287,34 @@ export function exportToolSchema(tool: any): WeavetabManifestTool {
 }
 
 /**
+ * Extracts and formats a CLI command definition into standard weavetab.json command structure.
+ */
+export function exportCommandSchema(cmd: any): WeavetabManifestCommandExport {
+  const name = cmd.name;
+  const description = cmd.description || "";
+  let parameters: JsonSchemaObject = { type: "object", properties: {} };
+
+  if (cmd.schema) {
+    parameters = zodToJsonSchema(cmd.schema) as JsonSchemaObject;
+  } else if (cmd.parameters) {
+    parameters = zodToJsonSchema(cmd.parameters) as JsonSchemaObject;
+  }
+
+  if (!parameters.type) parameters.type = "object";
+  if (!parameters.properties) parameters.properties = {};
+
+  const out: WeavetabManifestCommandExport = {
+    name,
+    description,
+    parameters,
+  };
+  if (cmd.usage) out.usage = cmd.usage;
+  if (Array.isArray(cmd.examples) && cmd.examples.length > 0) out.examples = cmd.examples;
+  if (typeof cmd.requiresSession === "boolean") out.requiresSession = cmd.requiresSession;
+  return out;
+}
+
+/**
  * Generates or synchronizes a weavetab.json manifest from a plugin definition and existing manifest.
  */
 export function exportManifest(plugin: any, existingManifest: any = {}): any {
@@ -292,10 +325,16 @@ export function exportManifest(plugin: any, existingManifest: any = {}): any {
   if (plugin.version) manifest.version = plugin.version;
   if (plugin.description) manifest.description = plugin.description;
   manifest.entry = manifest.entry || "dist/index.js";
+  if (plugin.instructions || manifest.instructions) {
+    manifest.instructions = plugin.instructions || manifest.instructions;
+  }
+  if (plugin.agentsMd || manifest.agentsMd) {
+    manifest.agentsMd = plugin.agentsMd || manifest.agentsMd;
+  }
 
   if (!manifest.engines) {
     manifest.engines = {
-      weavetab: "^2.6.0",
+      weavetab: "^2.6.2",
       node: ">=18.0.0",
     };
   }
@@ -304,8 +343,6 @@ export function exportManifest(plugin: any, existingManifest: any = {}): any {
     manifest.environments = ["mcp"];
   }
 
-  // Export static tools. Tools registered dynamically at runtime (via ctx.mcp.registerTool)
-  // cannot be introspected at build time, so preserve any tools already declared in the manifest.
   const tools: WeavetabManifestTool[] = [];
   if (Array.isArray(plugin.tools)) {
     for (const tool of plugin.tools) {
@@ -318,7 +355,36 @@ export function exportManifest(plugin: any, existingManifest: any = {}): any {
     manifest.tools = [];
   }
 
-  // Export declared interceptor middleware hooks if defined
+  const commands: WeavetabManifestCommandExport[] = [];
+  if (Array.isArray(plugin.commands)) {
+    for (const cmd of plugin.commands) {
+      commands.push(exportCommandSchema(cmd));
+    }
+  }
+  if (commands.length > 0) {
+    manifest.commands = commands;
+  } else if (Array.isArray(manifest.commands)) {
+    manifest.commands = manifest.commands;
+  }
+
+  if (Array.isArray(plugin.prompts) && plugin.prompts.length > 0) {
+    manifest.prompts = plugin.prompts.map((p: any) => ({
+      name: p.name,
+      ...(p.description ? { description: p.description } : {}),
+      ...(p.arguments ? { arguments: zodToJsonSchema(p.arguments) } : {}),
+    }));
+  }
+
+  if (Array.isArray(plugin.resources) && plugin.resources.length > 0) {
+    manifest.resources = plugin.resources.map((r: any) => ({
+      name: r.name,
+      ...(r.uri ? { uri: r.uri } : {}),
+      ...(r.uriTemplate ? { uriTemplate: r.uriTemplate } : {}),
+      ...(r.description ? { description: r.description } : {}),
+      ...(r.mimeType ? { mimeType: r.mimeType } : {}),
+    }));
+  }
+
   const middleware: Record<string, boolean> = {};
   if (plugin.onBeforeAction || (plugin.hooks && plugin.hooks.onBeforeAction)) {
     middleware.onBeforeAction = true;
@@ -336,9 +402,6 @@ export function exportManifest(plugin: any, existingManifest: any = {}): any {
   return manifest;
 }
 
-/**
- * Reads the official plugin manifest schema (plugin.json).
- */
 export function getManifestSchema(): any {
   try {
     const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -352,9 +415,6 @@ export function getManifestSchema(): any {
   return { $schema: "http://json-schema.org/draft-07/schema#", title: "WeavetabPluginManifest" };
 }
 
-/**
- * Reads the official tool schema (tool.json).
- */
 export function getToolSchema(): any {
   try {
     const __dirname = path.dirname(fileURLToPath(import.meta.url));

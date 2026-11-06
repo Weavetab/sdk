@@ -1,59 +1,103 @@
 ---
-title: "Visual HUD & Thought Bubbles"
-description: "Render animated thoughts, status badges, and DOM styles in the browser."
+title: "Visual HUD & In-Page Overlays"
+description: "Rendering floating thought bubbles, HUD status badges, custom CSS styling, and client scripts directly in the active browser tab."
 product: sdk
 section: sdk-plugins
-icon: Sparkle
+order: 9
+icon: Eye
 slug: plugin-hud
 ---
 
-# In-Browser Visual Extensions
+# Visual HUD & In-Page Overlays
 
-Plugins can interact directly with the live browser session to render visual feedback, animated thought bubbles, and custom CSS overlays.
-
----
-
-## 1. Floating Thought Bubbles (`showThought`)
-
-Displays an animated status thought bubble on the active browser window:
-
-```typescript
-await ctx.extension.showThought(
-  session,
-  "🎨 Analyzing page typography and color palette...",
-  { durationMs: 4000 }
-);
-```
+Weavetab features an in-browser Heads-Up Display (HUD) rendered directly onto active web tabs over the Chrome DevTools Protocol. Plugins can render animated thought bubbles, update status badges, and inject styling or scripts into pages.
 
 ---
 
-## 2. Status Badges & HUD State (`setHudState`)
+## 1. Extension Bridge API (`ctx.extension`)
 
-Updates the floating HUD badge in the browser header:
+Access the bridge via `ctx.extension` in tool handlers:
 
 ```typescript
-await ctx.extension.setHudState(session, {
-  badge: "Auditing",
-  badgeColor: "#22c55e",
-  action: "Scanning DOM hierarchy"
+import { definePlugin, defineTool, z, type PluginContext } from "@weavetab/sdk";
+
+export default definePlugin({
+  name: "weavetab-plugin-visual",
+  version: "1.0.0",
+  instructions: "Visual inspection tools with live HUD overlays.",
+
+  async onLoad(ctx: PluginContext) {
+    ctx.mcp.registerTool(
+      defineTool({
+        name: "highlight_element",
+        description: "Highlights a DOM element with an animated pulse border and displays a thought",
+        requiresSession: true,
+        schema: {
+          selector: z.string().describe("CSS selector to highlight"),
+          thoughtText: z.string().describe("Message to display in the floating bubble"),
+        },
+        handler: async (args, session) => {
+          if (!session) throw new Error("Active tab required.");
+
+          // 1. Show floating thought bubble next to element
+          await ctx.extension.showThought(
+            session,
+            `Inspecting ${args.selector}: "${args.thoughtText}"`
+          );
+
+          // 2. Update HUD status badge in top-right corner
+          await ctx.extension.setHudState(session, {
+            status: "active",
+            badgeText: "Visual Audit",
+            badgeColor: "#3b82f6",
+          });
+
+          // 3. Inject custom CSS outline animation
+          await ctx.extension.injectCss(
+            session,
+            `
+            ${args.selector} {
+              outline: 2px solid #3b82f6 !important;
+              outline-offset: 4px !important;
+              transition: outline 0.2s ease-in-out !important;
+            }
+            `
+          );
+
+          return {
+            content: [{ type: "text", text: `Element ${args.selector} highlighted.` }],
+          };
+        },
+      })
+    );
+  },
 });
 ```
 
 ---
 
-## 3. Style & Script Injection
+## 2. Thought Bubbles (`showThought`)
 
-```typescript
-// Inject custom CSS into the page DOM
-await ctx.extension.injectStyles(session, `
-  .highlight-box {
-    outline: 3px solid #8b5cf6 !important;
-    background: rgba(139, 92, 246, 0.1) !important;
+Thought bubbles render in the browser viewport, showing the user what the AI agent is thinking or planning:
+- Auto-collapses after a configurable duration.
+- Never disrupts page layout (rendered in an isolated Shadow DOM container attached to `document.documentElement`).
+- Sanitizes user input to prevent DOM-based XSS inside the thought bubble.
+
+---
+
+## 3. Manifest Permissions
+
+Consuming visual extension APIs requires the `extension` permission block:
+
+```json
+{
+  "permissions": {
+    "extension": {
+      "hud": true,
+      "overlay": true,
+      "styles": true,
+      "reason": "Renders floating thoughts and injects element outline highlights on audited pages."
+    }
   }
-`);
-
-// Execute sandboxed script in page context
-const result = await ctx.extension.injectScript(session, `
-  document.querySelectorAll('.pricing-card').length
-`);
+}
 ```

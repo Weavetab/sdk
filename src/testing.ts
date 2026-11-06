@@ -1,4 +1,47 @@
-import type { PluginContext, PluginStorage, PluginExtensionBridge, DefinedTool, McpToolResult } from "./index.js";
+export function createMockSession(opts: {
+  evaluate?: (expression: string) => Promise<any> | any;
+  url?: string;
+  title?: string;
+} = {}): any {
+  return {
+    Runtime: {
+      evaluate: async ({ expression }: { expression: string }) => {
+        if (opts.evaluate) {
+          const val = await opts.evaluate(expression);
+          return { result: { value: val } };
+        }
+        if (expression.includes("location.href")) {
+          return { result: { value: opts.url || "https://example.com" } };
+        }
+        if (expression.includes("document.title")) {
+          return { result: { value: opts.title || "Mock Document" } };
+        }
+        return { result: { value: undefined } };
+      },
+    },
+    Page: {
+      getFrameTree: async () => ({ frameTree: { frame: { id: "mock-frame", url: opts.url || "https://example.com" } } }),
+    },
+    DOM: {},
+    Network: {},
+  };
+}
+
+export async function simulateHook(
+  hookFn: (...args: any[]) => Promise<any> | any,
+  ...args: any[]
+): Promise<any> {
+  return await hookFn(...args);
+}
+
+import type {
+  PluginContext,
+  PluginStorage,
+  PluginExtensionBridge,
+  DefinedTool,
+  DefinedCommand,
+  McpToolResult,
+} from "./index.js";
 import { TabClient } from "./tab.js";
 import { DesktopClient, type DiscoveredApp } from "./desktop.js";
 
@@ -51,10 +94,13 @@ export function createMockContext(opts: MockContextOptions = {}): PluginContext 
       store.clear();
       ttlStore.clear();
     },
-    async getJSON<T = any>(): Promise<T | null> {
-      return null;
+    async getJSON<T = any>(filename: string): Promise<T | null> {
+      const v = store.get(`__json__${filename}`);
+      return v !== undefined ? JSON.parse(JSON.stringify(v)) : null;
     },
-    async setJSON(): Promise<void> {},
+    async setJSON<T = any>(filename: string, data: T): Promise<void> {
+      store.set(`__json__${filename}`, JSON.parse(JSON.stringify(data)));
+    },
     getPath(subpath?: string): string {
       return `/mock/storage/${subpath || ""}`;
     },
@@ -83,6 +129,7 @@ export function createMockContext(opts: MockContextOptions = {}): PluginContext 
   });
 
   const registeredTools: any[] = [];
+  const registeredCommands: any[] = [];
   const registeredPrompts: any[] = [];
   const registeredResources: any[] = [];
   const registeredOverrides: any[] = [];
@@ -101,6 +148,7 @@ export function createMockContext(opts: MockContextOptions = {}): PluginContext 
       showThought: async () => {},
       clearThought: async () => {},
       injectStyles: async () => {},
+      injectCss: async () => {},
       injectScript: async () => undefined,
       hideOverlay: async () => {},
       restoreOverlay: async () => {},
@@ -108,12 +156,18 @@ export function createMockContext(opts: MockContextOptions = {}): PluginContext 
     mcp: {
       registerPrompt: (p) => registeredPrompts.push(p),
       registerResource: (r) => registeredResources.push(r),
+      registerCommand: (c) => registeredCommands.push(c),
       unregisterPrompt: () => {},
       unregisterResource: () => {},
+      unregisterCommand: () => {},
       registerTool: (tool) => registeredTools.push(tool),
       overrideTool: (toolName, handler) => registeredOverrides.push({ toolName, handler }),
       removeTool: () => {},
       unregisterTool: () => {},
+    },
+    cli: {
+      registerCommand: (c) => registeredCommands.push(c),
+      unregisterCommand: () => {},
     },
     hooks: {
       onBeforeAction: () => {},
@@ -135,8 +189,21 @@ export function createMockContext(opts: MockContextOptions = {}): PluginContext 
 export async function simulateToolCall(
   tool: DefinedTool | { handler: (...args: any[]) => any },
   args: Record<string, any>,
-  ctx: PluginContext
+  ctxOrOpts?: PluginContext | { session?: any; context?: PluginContext }
 ): Promise<McpToolResult> {
+  let ctx: PluginContext;
+  let customSession: any;
+
+  if (ctxOrOpts && "storage" in ctxOrOpts) {
+    ctx = ctxOrOpts as PluginContext;
+  } else if (ctxOrOpts && typeof ctxOrOpts === "object") {
+    customSession = (ctxOrOpts as any).session;
+    ctx = (ctxOrOpts as any).context || createMockContext();
+  } else {
+    ctx = createMockContext();
+  }
+
+  const session = customSession || (ctx.tab as any)?.session;
   const signal = new AbortController().signal;
   const toolCtx = {
     tab: ctx.tab,
@@ -145,14 +212,15 @@ export async function simulateToolCall(
     config: ctx.config,
     logger: ctx.logger,
     signal,
+    session,
   };
+  const callCtx = session ? Object.assign(Object.create(session), toolCtx) : toolCtx;
 
   let raw: any;
-  // Support both unified (args, ctx) signature and legacy (args, session, config)
   if (tool.handler.length <= 2) {
-    raw = await tool.handler(args, toolCtx);
+    raw = await tool.handler(args, callCtx);
   } else {
-    raw = await tool.handler(args, (ctx.tab as any)?.session, ctx.config);
+    raw = await tool.handler(args, session, ctx.config);
   }
 
   if (raw && Array.isArray(raw.content)) {
@@ -170,4 +238,21 @@ export async function simulateToolCall(
   return {
     content: [{ type: "text", text: JSON.stringify(raw ?? null, null, 2) }],
   };
+}
+
+export async function simulateCommandCall(
+  cmd: DefinedCommand | { handler: (...args: any[]) => any },
+  args: Record<string, any>,
+  ctx: PluginContext
+): Promise<any> {
+  const cmdCtx = {
+    args: [],
+    flags: args,
+    tab: ctx.tab,
+    desktop: ctx.desktop,
+    storage: ctx.storage,
+    config: ctx.config,
+    logger: ctx.logger,
+  };
+  return await cmd.handler(args, cmdCtx);
 }

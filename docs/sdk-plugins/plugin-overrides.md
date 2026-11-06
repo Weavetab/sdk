@@ -1,57 +1,79 @@
 ---
-title: "Tool Overrides & Hooks"
-description: "Intercept built-in tools and subscribe to global lifecycle events."
+title: "Tool Overrides"
+description: "Wrapping built-in Weavetab tools, pre-processing arguments, and post-processing results."
 product: sdk
 section: sdk-plugins
-icon: GitFork
+order: 10
+icon: Replace
 slug: plugin-overrides
 ---
 
-# Tool Overrides & Lifecycle Hooks
+# Tool Overrides
 
-Plugins can wrap or intercept built-in tools (such as `browser_navigate`, `browser_click`, `browser_eval`) and subscribe to global lifecycle hooks.
+Tool overrides allow plugins to wrap built-in Weavetab tools (e.g. `browser_click`, `browser_navigate`, `browser_fill`) without replacing the underlying CDP mechanics.
+
+Use cases include:
+- Enforcing enterprise compliance checks on specific actions.
+- Automatically taking screenshots before and after high-stakes operations.
+- Translating legacy selector formats into modern semantic selectors.
 
 ---
 
-## 1. Tool Overriding (`overrideTool`)
+## 1. Registering an Override
 
-Intercept an existing tool to add validation, security guards, or logging:
+Use `ctx.mcp.overrideTool` inside `onLoad`:
 
 ```typescript
-ctx.mcp.overrideTool("browser_navigate", async (args: { url: string }, session, config, original) => {
-  // Check against custom security rules
-  if (args.url.includes("untrusted-domain.com")) {
-    if (session) {
-      await ctx.extension.showThought(session, "🛡️ Blocked navigation to untrusted domain!");
+import { definePlugin, type PluginContext } from "@weavetab/sdk";
+
+export default definePlugin({
+  name: "weavetab-plugin-safe-clicks",
+  version: "1.0.0",
+  instructions: "Safety policy overrides for browser click actions.",
+
+  async onLoad(ctx: PluginContext) {
+    ctx.mcp.overrideTool("browser_click", {
+      description: "Clicks an element with pre-flight double-click prevention and audit logging",
+      handler: async (args, session, originalHandler) => {
+        ctx.logger.info(`Pre-click audit on selector: ${args.selector || args.targetRef}`);
+
+        // Block clicks on dangerous selectors
+        if (typeof args.selector === "string" && args.selector.includes(".btn-delete-account")) {
+          throw new Error("Clicking account deletion buttons is blocked by safety policy.");
+        }
+
+        // Call the original built-in handler
+        const result = await originalHandler(args, session);
+
+        // Augment result with audit metadata
+        return {
+          ...result,
+          metadata: {
+            auditedBy: ctx.name,
+            timestamp: Date.now(),
+          },
+        };
+      },
+    });
+  },
+});
+```
+
+---
+
+## 2. Manifest Permission
+
+Overriding built-in tools requires explicit declaration under `permissions.tools.override`:
+
+```json
+{
+  "permissions": {
+    "tools": {
+      "override": ["browser_click"],
+      "reason": "Audits mouse clicks and blocks high-risk account deletion buttons."
     }
-    return {
-      content: [{ type: "text", text: "Navigation blocked by custom security plugin." }],
-      isError: true
-    };
   }
-
-  // Forward to original built-in handler
-  return original ? await original(args, session, config) : null;
-});
+}
 ```
 
----
-
-## 2. Global Execution Hooks
-
-```typescript
-// Before any tool executes
-ctx.hooks.beforeToolCall((toolName, args) => {
-  ctx.logger.debug(`[Hook] Executing ${toolName}`, args);
-});
-
-// After any tool finishes
-ctx.hooks.afterToolCall((toolName, args, result) => {
-  ctx.logger.debug(`[Hook] Completed ${toolName}`);
-});
-
-// On page navigation
-ctx.hooks.onPageNavigate?.(async (url, session) => {
-  ctx.logger.info(`Navigated to: ${url}`);
-});
-```
+The runtime verifies that any tool wrapped via `overrideTool` is present in `permissions.tools.override`. Undeclared overrides fail validation.

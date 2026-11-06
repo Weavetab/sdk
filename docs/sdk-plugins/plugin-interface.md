@@ -1,37 +1,85 @@
 ---
-title: "Plugin Architecture"
-description: "PluginBuilder, definePlugin, and the PluginContext interface."
+title: "Plugin Architecture & Context"
+description: "Core interfaces, definePlugin, PluginBuilder, and the complete PluginContext contract."
 product: sdk
 section: sdk-plugins
+order: 1
 icon: Puzzle
 slug: plugin-interface
 ---
 
 # Plugin Architecture & APIs
 
-The SDK supports two authoring paradigms: the declarative **`definePlugin`** function and the fluent **`PluginBuilder`** class, combined with **`defineTool`** for 100% type-safe Zod tool definitions.
+The Weavetab SDK provides two paradigms for creating plugins:
+- **`definePlugin`**: A declarative functional API for static and dynamic registration.
+- **`PluginBuilder`**: A fluent, chainable builder for complex middleware pipelines.
+
+Both paradigms compile to the same runtime contract and receive a typed **`PluginContext`** at load time.
 
 ---
 
-## 1. Type-Safe Tool Definition with Zod (`defineTool`)
+## 1. Type-Safe Tool Definition (`defineTool`)
 
-Plugin authors do not need to manually write JSON Schema draft-07. Use `defineTool` with `z` from `@weavetab/sdk`:
+The SDK uses [Zod](https://zod.dev) for input schema validation. Tools defined with `defineTool` automatically generate JSON Schema Draft-07 representations and infer runtime TypeScript argument types.
 
 ```typescript
 import { defineTool, z } from "@weavetab/sdk";
 
-export const scrapeTool = defineTool({
-  name: "scrape_catalog",
-  description: "Extracts structured product cards from an e-commerce page",
-  schema: z.object({
-    category: z.string().describe("Product category filter"),
-    maxItems: z.number().default(20).describe("Maximum items to extract"),
-    includeOutdated: z.boolean().optional().describe("Include out-of-stock items"),
-  }),
-  // args is automatically typed: { category: string; maxItems: number; includeOutdated?: boolean }
+export const tableExtractor = defineTool({
+  name: "extract_table",
+  description: "Extracts tabular data matching a CSS selector into structured JSON rows",
+  requiresSession: true, // Requires an active browser tab session
+  schema: {
+    selector: z.string().describe("CSS selector targeting the <table> or data grid"),
+    maxRows: z.number().int().min(1).max(500).default(50).describe("Maximum rows to parse"),
+    cleanWhitespace: z.boolean().default(true).describe("Strip extra whitespace and newlines"),
+  },
   handler: async (args, session) => {
+    // args is strictly typed: { selector: string; maxRows: number; cleanWhitespace: boolean }
+    if (!session) {
+      throw new Error("Active browser tab is required.");
+    }
+
+    const rows = await session.evaluate(`((sel, limit, clean) => {
+      const table = document.querySelector(sel);
+      if (!table) return [];
+      const trs = Array.from(table.querySelectorAll('tbody tr, tr')).slice(0, limit);
+      return trs.map(tr => {
+        const cells = Array.from(tr.querySelectorAll('td, th'));
+        return cells.map(c => clean ? c.innerText.trim().replace(/\\s+/g, ' ') : c.innerText);
+      });
+    })(${JSON.stringify(args.selector)}, ${args.maxRows}, ${args.cleanWhitespace})`);
+
     return {
-      content: [{ type: "text", text: `Scraping category ${args.category} (limit: ${args.maxItems})` }],
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({ selector: args.selector, rowCount: rows.length, rows }, null, 2),
+        },
+      ],
+    };
+  },
+});
+```
+
+### Browser-less Tools (`requiresSession: false`)
+
+Tools that only execute API calls, compute transformations, or query local databases should specify `requiresSession: false`. The host skips launching or connecting to Chrome:
+
+```typescript
+export const dnsLookup = defineTool({
+  name: "dns_lookup",
+  description: "Performs DNS record queries without launching a browser",
+  requiresSession: false,
+  schema: {
+    domain: z.string().describe("Domain name to query"),
+    recordType: z.enum(["A", "AAAA", "CNAME", "MX", "TXT"]).default("A"),
+  },
+  handler: async (args) => {
+    // session is undefined, Chrome is never started
+    const records = await resolveDns(args.domain, args.recordType);
+    return {
+      content: [{ type: "text", text: JSON.stringify(records) }],
     };
   },
 });
@@ -39,147 +87,173 @@ export const scrapeTool = defineTool({
 
 ---
 
-### Browser-less tools (`requiresSession: false`)
-
-By default the host establishes a browser/CDP session before invoking your tool, so the `session` argument is populated. API-only tools that never touch the browser (HTTP fetchers, formatters, pure compute) can opt out:
+## 2. Declarative `definePlugin` API
 
 ```typescript
-import { defineTool, z } from "@weavetab/sdk";
+import { definePlugin, type PluginContext } from "@weavetab/sdk";
+import { tableExtractor } from "./tools/extractor.js";
+import { tableCommand } from "./commands/table.js";
 
-export const repoInfo = defineTool({
-  name: "repo_info",
-  description: "Fetches repository metadata over HTTPS — no browser needed.",
-  requiresSession: false, // handler receives session === undefined
-  schema: z.object({ repo: z.string().describe("owner/repo slug") }),
-  handler: async ({ repo }) => ({
-    content: [{ type: "text", text: `fetched ${repo}` }],
-  }),
+export default definePlugin({
+  name: "weavetab-plugin-grid",
+  version: "1.0.0",
+  description: "Grid extraction and data transformation tools",
+  instructions: "Grid extraction and data transformation tools.",
+
+  defaultConfig: {
+    defaultLimit: 50,
+  },
+
+  // Statically registered tools & commands
+  tools: [tableExtractor],
+  commands: [tableCommand],
+
+  // Lifecycle hooks
+  async onLoad(ctx: PluginContext) {
+    ctx.logger.info(`Loaded grid plugin with limit=${ctx.config.defaultLimit}`);
+  },
+
+  async onUnload(ctx: PluginContext) {
+    ctx.logger.info("Unloaded grid plugin");
+  },
 });
 ```
 
-With `requiresSession: false` the host skips launching/connecting Chrome entirely, so the call works headlessly and never mutates the user's tabs. RBAC and rate limiting are still enforced. The official `@weavetab/plugin-github` plugin uses this flag.
-
 ---
 
-## 2. Fluent `PluginBuilder` API
+## 3. Fluent `PluginBuilder` API
+
+For plugins requiring conditional tool mounting or middleware interceptors:
 
 ```typescript
 import { PluginBuilder, z } from "@weavetab/sdk";
 
-export default new PluginBuilder("enterprise-auditor")
+export default new PluginBuilder("weavetab-plugin-security")
   .version("1.0.0")
-  .description("Enterprise accessibility, security, and SEO auditing plugin")
-  .defaultConfig({ autoInjectA11yBadges: true })
+  .description("Enterprise security auditor and URL sanitizer")
+  .instructions("Enterprise security auditor and URL sanitizer.")
+  .defaultConfig({ strictAudit: true })
+  .allowToolAdd("Registers the security_scan tool")
+  .allowCommandAdd("Registers the audit-urls CLI command")
   .addTool({
-    name: "audit_a11y",
-    description: "Audits page elements for WCAG compliance",
-    schema: z.object({
-      selector: z.string().describe("Root container selector"),
-      strictMode: z.boolean().default(false),
-    }),
+    name: "security_scan",
+    description: "Audits page headers, cookies, and scripts for security compliance",
+    schema: {
+      deep: z.boolean().default(false),
+    },
     handler: async (args, session) => {
-      return { content: [{ type: "text", text: `Audit complete for ${args.selector}: 0 violations` }] };
+      return { content: [{ type: "text", text: "Security scan passed." }] };
     },
   })
   .onBeforeAction(async (tool, args, session) => {
-    if (tool === "browser_navigate" && args.url?.includes("untrusted.local")) {
-      return { __blocked: true, reason: "Navigation to untrusted intranet site is blocked." };
+    // Block navigations to unencrypted HTTP addresses
+    if (tool === "browser_navigate" && typeof args.url === "string" && args.url.startsWith("http://")) {
+      return { __blocked: true, reason: "Plain HTTP navigation blocked by security policy." };
     }
   })
-  .onAfterAction(async (tool, result) => {
-    // Redact or scrub result data
-    return result;
-  })
-  .onDOMMutation(async (delta) => {
-    console.log(`[Auditor] Page mutated: ${delta.added?.length ?? 0} elements added.`);
-  })
   .onLoad(async (ctx) => {
-    ctx.logger.info("Enterprise auditor initialized!");
+    ctx.logger.info("Security interceptor armed.");
   })
   .build();
 ```
 
 ---
 
-## 3. Declarative `definePlugin` API
+## 4. The Complete `PluginContext` Contract
 
-```typescript
-import { definePlugin, type PluginContext } from "@weavetab/sdk";
-import { scrapeTool } from "./tools.js";
+The `PluginContext` passed to `onLoad(ctx)` gives plugins access to Weavetab's subsystem APIs:
 
-export default definePlugin({
-  name: "custom-scraper",
-  version: "1.0.0",
-  defaultConfig: {
-    maxItems: 50,
-  },
-  tools: [scrapeTool],
-
-  // Enterprise middleware hooks
-  onBeforeAction: async (tool, args) => {
-    // Audit or modify arguments before any MCP tool executes
-  },
-  onAfterAction: async (tool, result) => {
-    // Inspect or redact results after tool executes
-  },
-  onDOMMutation: async (delta) => {
-    // Real-time DOM mutation stream
-  },
-
-  async onLoad(ctx: PluginContext) {
-    ctx.logger.info("Custom scraper loaded!");
-  },
-});
-```
-
----
-
-## 4. The `PluginContext` Contract
-
-Every plugin's `onLoad` handler receives a `PluginContext` instance containing:
-
-| Property | Type | Description |
+| Subsystem | Type | Responsibility |
 |---|---|---|
-| `ctx.name` | `string` | Plugin unique name. |
-| `ctx.config` | `Record<string, any>` | Configuration parsed from `~/.weavetab/plugins/<name>/config.json`. |
-| `ctx.storage` | `PluginStorage` | Isolated persistent key-value and JSON file storage API. |
-| `ctx.extension` | `PluginExtensionBridge` | Direct bridge to in-browser HUD overlays and styles. |
-| `ctx.mcp` | `PluginMcpContext` | Tool, `/` command (`registerPrompt`), `@` mention (`registerResource`), and override API. |
+| `ctx.name` | `string` | Unique npm package identifier declared in `weavetab.json`. |
+| `ctx.version` | `string` | Plugin semver version. |
+| `ctx.config` | `Record<string, unknown>` | Merged configuration from defaults and `~/.weavetab/plugins/<name>/config.json`. |
+| `ctx.cli` | `PluginCliContext` | Register CLI subcommands invoked via `weavetab plugin use <pkg> <cmd>`. |
+| `ctx.mcp` | `PluginMcpContext` | Register MCP tools, `/` prompt templates, `@` resources, and tool overrides. |
+| `ctx.storage` | `PluginStorage` | Isolated persistent key-value store and JSON file system. |
+| `ctx.extension` | `PluginExtensionBridge`| In-browser visual extensions: floating thoughts, HUD state, CSS/JS injection. |
+| `ctx.hooks` | `PluginHooks` | Runtime execution interceptors (`onBeforeAction`, `onAfterAction`, `onDOMMutation`). |
+| `ctx.logger` | `PluginLogger` | Scoped logger writing to `~/.weavetab/logs/` with level gating (`info`, `warn`, `error`, `debug`). |
 
 ---
 
-## 5. `/` Commands (`definePrompt`) & `@` Mentions (`defineResource`)
+## 5. Subsystem Interface Details
 
-In MCP-compatible clients (Claude Desktop, Cursor, Windsurf, Antigravity, Zed), **MCP Prompts** appear as `/` slash commands and **MCP Resources** appear as `@` mentions.
+### `ctx.cli` (Plugin CLI Engine)
 
 ```typescript
-import { definePrompt, defineResource, z } from "@weavetab/sdk";
-
-export const watchCommand = definePrompt({
-  name: "realtime_watch",
-  description: "Switch the agent into 60Hz reflex monitoring mode",
-  arguments: {
-    goal: z.string().optional().describe("Target interaction or game rule"),
-  },
-  handler: async ({ goal }, { tab }) => {
-    const url = (await tab?.url()) || "no active tab";
-    return `Active tab: ${url}. Goal: ${goal || "sample canvas and arm reflex rules"}.`;
-  },
-});
-
-export const stateMention = defineResource({
-  name: "realtime-state",
-  uri: "realtime://state",
-  description: "Live probe, canvas recorder, and reflex status for the current tab",
-  mimeType: "application/json",
-  read: async (uri, _vars, { tab }) => {
-    if (!tab?.isAvailable()) return JSON.stringify({ attached: false });
-    const snap = await tab.evaluate("window.__wt_rf ? window.__wt_rf.snap() : []");
-    return JSON.stringify({ uri, reflexes: snap }, null, 2);
-  },
-});
+interface PluginCliContext {
+  // Registers a terminal command callable via `weavetab plugin use <pkg> <cmd>`
+  registerCommand(cmd: DefinedCommand): void;
+  // Unregisters a command dynamically
+  unregisterCommand(name: string): void;
+}
 ```
 
-For dynamic `@` mentions with parameters, pass `uriTemplate` (RFC 6570, e.g. `"realtime://reflex/{id}"`), an optional `list(ctx)` callback to populate the `@` picker, and an optional `complete: { id: (prefix) => [...] }` map for live argument autocomplete. When a plugin unloads, all of its prompts and resources are removed from the MCP server automatically.
-| `ctx.hooks` | `PluginHooks` | Interceptors and lifecycle hooks (`onBeforeAction`, `onAfterAction`, `onDOMMutation`). |
-| `ctx.logger` | `PluginLogger` | Scoped logger with info, warn, error, and debug levels. |
+### `ctx.mcp` (Model Context Protocol Engine)
+
+```typescript
+interface PluginMcpContext {
+  // Registers an MCP tool for agent function calling
+  registerTool(tool: DefinedTool): void;
+  // Registers a `/` slash prompt template
+  registerPrompt(prompt: DefinedPrompt): void;
+  // Registers an `@` context mention or dynamic URI template
+  registerResource(resource: DefinedResource): void;
+  // Wraps a built-in Weavetab tool with custom logic
+  overrideTool(name: string, override: ToolOverrideDefinition): void;
+}
+```
+
+### `ctx.storage` (Isolated Storage Engine)
+
+```typescript
+interface PluginStorage {
+  get(key: string): Promise<string | null>;
+  set(key: string, value: string): Promise<void>;
+  delete(key: string): Promise<void>;
+  has(key: string): Promise<boolean>;
+  list(): Promise<string[]>;
+  clear(): Promise<void>;
+  getJson<T>(key: string): Promise<T | null>;
+  setJson<T>(key: string, value: T): Promise<void>;
+}
+```
+
+### `ctx.extension` (Browser Viewport Engine)
+
+```typescript
+interface PluginExtensionBridge {
+  // Shows an animated floating thought bubble on the active page
+  showThought(session: any, text: string): Promise<void>;
+  // Updates the top-right Weavetab HUD state badge
+  setHudState(session: any, state: HudState): Promise<void>;
+  // Injects custom CSS styling into the page DOM
+  injectCss(session: any, css: string): Promise<void>;
+  // Injects an arbitrary JavaScript script into the page DOM
+  injectScript(session: any, code: string): Promise<any>;
+}
+```
+
+---
+
+## 6. Error Handling
+
+Throw `PluginError` to deliver structured error responses back to agents and terminal callers:
+
+```typescript
+import { PluginError } from "@weavetab/sdk";
+
+throw new PluginError(
+  "INVALID_TARGET",
+  "Target selector '#payment-form' was not found in the DOM after 3000ms.",
+  { selector: "#payment-form", timeoutMs: 3000 }
+);
+```
+
+Standard error codes:
+- `INVALID_ARGUMENTS`: Argument failed schema validation.
+- `EXECUTION_FAILED`: Execution threw an unhandled exception.
+- `SESSION_REQUIRED`: Tool requires an active tab but none is attached.
+- `UNAUTHORIZED_CAPABILITY`: Plugin attempted an action not declared in its `weavetab.json` permissions.
+- `RATE_LIMITED`: Plugin exceeded its invocation budget.

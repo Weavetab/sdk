@@ -1,6 +1,62 @@
 import fs from "node:fs";
 import path from "node:path";
 
+export const MAX_INSTRUCTIONS_LINES = 80;
+export const MAX_INSTRUCTIONS_CHARS = 3200;
+export const MIN_INSTRUCTIONS_CHARS = 20;
+
+export const MAX_AGENTS_MD_LINES = MAX_INSTRUCTIONS_LINES;
+export const MAX_AGENTS_MD_CHARS = MAX_INSTRUCTIONS_CHARS;
+export const MIN_AGENTS_MD_CHARS = MIN_INSTRUCTIONS_CHARS;
+
+export interface InstructionsAudit {
+  valid: boolean;
+  lines: number;
+  chars: number;
+  errors: string[];
+  warnings: string[];
+}
+
+export type AgentsMdAudit = InstructionsAudit;
+
+/**
+ * Enforces the strict context-window budget on plugin instructions so
+ * loaded plugins never bloat or overflow an AI agent's context window.
+ */
+export function auditInstructions(content: string, label = "instructions"): InstructionsAudit {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  const trimmed = content.trim();
+  const chars = trimmed.length;
+  const lines = trimmed ? trimmed.split(/\r?\n/).length : 0;
+
+  if (chars < MIN_INSTRUCTIONS_CHARS) {
+    errors.push(
+      `${label} is too short (${chars} chars, minimum ${MIN_INSTRUCTIONS_CHARS}); document operational rules or usage for AI agents`
+    );
+  }
+  if (lines > MAX_INSTRUCTIONS_LINES) {
+    errors.push(
+      `${label} exceeds strict context budget: ${lines} lines (max ${MAX_INSTRUCTIONS_LINES} lines allowed to prevent AI agent context overflow)`
+    );
+  }
+  if (chars > MAX_INSTRUCTIONS_CHARS) {
+    errors.push(
+      `${label} exceeds strict character budget: ${chars} chars (max ${MAX_INSTRUCTIONS_CHARS} chars / ~800 tokens allowed)`
+    );
+  }
+
+  return {
+    valid: errors.length === 0,
+    lines,
+    chars,
+    errors,
+    warnings,
+  };
+}
+
+export const auditAgentsMd = (content: string) => auditInstructions(content, "AGENTS.md");
+
 export interface PreflightResult {
   success: boolean;
   errors: string[];
@@ -78,7 +134,45 @@ export function runPreflight(cwd = process.cwd()): PreflightResult {
     }
   }
 
-  // 4. Permissions Reason Audit
+  // 4. Agent instructions check (In-manifest instructions or legacy AGENTS.md)
+  let agentSource: string | null = null;
+  let sourceLabel = "weavetab.json 'instructions'";
+
+  if (typeof manifest.instructions === "string" && manifest.instructions.trim()) {
+    agentSource = manifest.instructions;
+    sourceLabel = "manifest 'instructions'";
+  } else {
+    const agentsRel = typeof manifest.agentsMd === "string" && manifest.agentsMd.trim() ? manifest.agentsMd.trim() : "AGENTS.md";
+    const agentsPath = path.join(cwd, agentsRel);
+    if (fs.existsSync(agentsPath)) {
+      agentSource = fs.readFileSync(agentsPath, "utf-8");
+      sourceLabel = agentsRel;
+    }
+  }
+
+  if (!agentSource) {
+    errors.push(
+      "manifest must declare 'instructions' (or provide an AGENTS.md file) so AI agents know how to use this plugin"
+    );
+  } else {
+    const audit = auditInstructions(agentSource, sourceLabel);
+    errors.push(...audit.errors);
+    warnings.push(...audit.warnings);
+  }
+
+  // 5. Commands Structure & Permissions Audit
+  if (Array.isArray(manifest.commands)) {
+    for (const cmd of manifest.commands) {
+      if (!cmd.name || typeof cmd.name !== "string" || !cmd.name.trim()) {
+        errors.push("all declared commands in 'commands' must have a non-empty 'name'");
+      }
+      if (!cmd.description || typeof cmd.description !== "string" || cmd.description.trim().length < 5) {
+        errors.push(`command '${cmd.name || "unnamed"}' must have a descriptive 'description' (at least 5 characters)`);
+      }
+    }
+  }
+
+  // 5. Permissions Reason & Commands Gate Audit
   const perms = manifest.permissions;
   if (perms && typeof perms === "object" && !Array.isArray(perms)) {
     for (const [category, val] of Object.entries(perms)) {
@@ -89,9 +183,19 @@ export function runPreflight(cwd = process.cwd()): PreflightResult {
         }
       }
     }
+    if (Array.isArray(manifest.commands) && manifest.commands.length > 0 && !perms.commands?.add) {
+      errors.push(
+        `manifest declares ${manifest.commands.length} CLI command(s) in 'commands' but is missing 'permissions.commands.add: true'`
+      );
+    }
+  } else if (Array.isArray(manifest.commands) && manifest.commands.length > 0) {
+    const hasCmdPerm = Array.isArray(perms) && (perms.includes("commands") || perms.includes("commands.add"));
+    if (!hasCmdPerm) {
+      errors.push("manifest declares CLI commands in 'commands' but is missing 'permissions.commands'");
+    }
   }
 
-  // 5. Build Artifact & Entry point check
+  // 6. Build Artifact & Entry point check
   const entryRel = manifest.entry || pkgJson.main || "dist/index.js";
   const entryAbs = path.join(cwd, entryRel);
   if (!fs.existsSync(entryAbs)) {

@@ -12,7 +12,15 @@ import { execSync, spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import { exportManifest } from "./schema/exporter.js";
-import { runPreflight } from "./preflight.js";
+import {
+  runPreflight,
+  auditInstructions,
+  auditAgentsMd,
+  MAX_INSTRUCTIONS_LINES,
+  MAX_INSTRUCTIONS_CHARS,
+  MAX_AGENTS_MD_LINES,
+  MAX_AGENTS_MD_CHARS,
+} from "./preflight.js";
 
 import { WEAVETAB_VERSION } from "./version.js";
 
@@ -53,27 +61,27 @@ function printHelp(): void {
 
 \x1b[1mDEVELOPER COMMANDS:\x1b[0m
   \x1b[32minit\x1b[0m [name]            Scaffold a new enterprise TypeScript plugin project
-  \x1b[32mbuild\x1b[0m                  Compile TypeScript and synchronize weavetab.json manifest
-  \x1b[32mmanifest\x1b[0m (or schema)   Auto-generate MCP manifest & JSON schemas from Zod tools
+  \x1b[32mbuild\x1b[0m                  Compile TypeScript, verify instructions budget, and sync weavetab.json
+  \x1b[32mmanifest\x1b[0m (or schema)   Auto-generate MCP manifest & JSON schemas from Zod tools/commands
   \x1b[32mdev\x1b[0m                    Start live TypeScript watch mode with manifest auto-sync
-  \x1b[32mvalidate\x1b[0m [--offline]   Validate manifest schema, isolated permissions, and sandbox
+  \x1b[32mvalidate\x1b[0m [--offline]   Validate manifest schema, instructions budget, and permissions
   \x1b[32mpreflight\x1b[0m              Run complete pre-publish verification suite
   \x1b[32mdoctor\x1b[0m                 Run environment diagnostics and verify plugin health
-  \x1b[32mpublish\x1b[0m [--dry-run]    npm publish + sync to weavetab.dev registry
+  \x1b[32mpublish\x1b[0m [--dry-run]    Run preflight gate + npm publish + sync to weavetab.dev registry
   \x1b[32mtemplates\x1b[0m              List all 5 available plugin templates
   \x1b[32mversion\x1b[0m                Print current SDK version
   \x1b[32mhelp\x1b[0m                   Display this help screen
 
 \x1b[1mTEMPLATE OPTIONS (for 'init'):\x1b[0m
-  \x1b[36m--template standard\x1b[0m    Default versatile plugin (Tools + Isolated Storage + HUD)
+  \x1b[36m--template standard\x1b[0m    Default versatile plugin (Tools + CLI Commands + Storage + HUD)
   \x1b[36m--template visual\x1b[0m      Visual feedback & UI overlay plugin (HUD, badges, DOM styles)
   \x1b[36m--template scraper\x1b[0m     Data extraction & DOM scraper with sandboxed JSON storage
   \x1b[36m--template automation\x1b[0m  High-speed multi-step browser automation workflow
   \x1b[36m--template override\x1b[0m    Built-in tool interceptor & lifecycle hook wrapper
 
 \x1b[1mDOCUMENTATION & REGISTRY:\x1b[0m
-  Docs:     https://weavetab.dev/docs
-  Schemas:  https://weavetab.dev/schema/plugin.json
+  Docs:     ${DOCS_URL}
+  Schemas:  ${SCHEMA_URL}
   Registry: https://weavetab.dev/api/plugins
   SDK:      https://github.com/weavetab/sdk
 `);
@@ -84,7 +92,7 @@ function printHelp(): void {
 // ---------------------------------------------------------------------------
 
 export const TEMPLATE_CATALOG: Array<{ id: string; label: string; description: string }> = [
-  { id: "standard", label: "Standard", description: "Versatile plugin (Tools + Isolated Storage + HUD)" },
+  { id: "standard", label: "Standard", description: "Versatile plugin (Tools + CLI Commands + Storage + HUD)" },
   { id: "visual", label: "Visual", description: "Visual feedback & UI overlay (HUD, badges, DOM styles)" },
   { id: "scraper", label: "Scraper", description: "Data extraction & DOM scraper with sandboxed JSON storage" },
   { id: "automation", label: "Automation", description: "High-speed multi-step browser automation workflow" },
@@ -103,9 +111,18 @@ function printTemplates(): void {
   console.log(`\nUsage: weavetab init my-plugin --template <id>\n`);
 }
 
-function getTemplateSource(templateType: string, pluginPkgName: string): { src: string; tools: any[]; perms: any; config: any } {
+function getTemplateSource(
+  templateType: string,
+  pluginPkgName: string
+): { src: string; tools: any[]; commands: any[]; perms: any; config: any; instructions: string; agentsMd?: string } {
   switch (templateType.toLowerCase()) {
-    case "visual":
+    case "visual": {
+      const instructions = `Visual overlay plugin for highlighting DOM targets and managing HUD state.
+MCP Tools:
+- highlight_elements: Outline matching CSS selectors on the active page (selector, color).
+CLI Commands:
+- weavetab plugin use ${pluginPkgName} badge [--label <text>]: Read or update HUD badge settings.
+- weavetab plugin use ${pluginPkgName} highlight_elements --selector "button" --color "#22c55e": Run tool from CLI.`;
       return {
         config: {
           hudBadge: "Visual Mode",
@@ -117,6 +134,7 @@ function getTemplateSource(templateType: string, pluginPkgName: string): { src: 
           extension: { hud: true, overlay: true, styles: true, scripts: true, reason: "Renders HUD badges and injects custom styles" },
           cdp: { evaluate: true, reason: "Applies visual DOM transforms in page" },
           tools: { add: true, reason: "Registers the highlight_elements tool" },
+          commands: { add: true, reason: "Registers the badge CLI command for terminal HUD control" },
         },
         tools: [
           {
@@ -132,6 +150,21 @@ function getTemplateSource(templateType: string, pluginPkgName: string): { src: 
             },
           },
         ],
+        commands: [
+          {
+            name: "badge",
+            description: "Inspect or update the configured visual HUD badge text from the CLI",
+            usage: `weavetab plugin use ${pluginPkgName} badge [--label <text>]`,
+            parameters: {
+              type: "object",
+              properties: {
+                label: { type: "string", description: "Optional new HUD badge label" },
+              },
+            },
+          },
+        ],
+        instructions,
+        agentsMd: instructions,
         src: `import { definePlugin, z, type PluginContext } from "@weavetab/sdk";
 
 export default definePlugin({
@@ -144,9 +177,6 @@ export default definePlugin({
   },
 
   async onLoad(ctx: PluginContext) {
-    ctx.logger.info("Visual Extension plugin initialized!");
-
-    // Register visual highlight tool
     ctx.mcp.registerTool({
       name: "highlight_elements",
       description: "Highlights specific DOM elements on the active webpage with custom outline colors",
@@ -157,15 +187,13 @@ export default definePlugin({
       handler: async (args: { selector: string; color?: string }, session: any) => {
         const color = args.color || "#22c55e";
 
-        // Show floating HUD thought bubble
         if (session) {
-          await ctx.extension.showThought(session, \`🎨 Highlighting \${args.selector}\`, { durationMs: 3000 });
+          await ctx.extension.showThought(session, \`Highlighting \${args.selector}\`, { durationMs: 3000 });
           await ctx.extension.setHudState(session, {
             badge: ctx.config.hudBadge,
             badgeColor: ctx.config.badgeColor,
           });
 
-          // Inject custom styling
           await ctx.extension.injectStyles(session, \`
             \${args.selector} {
               outline: 3px solid \${color} !important;
@@ -180,10 +208,28 @@ export default definePlugin({
         };
       },
     });
+
+    ctx.cli.registerCommand({
+      name: "badge",
+      description: "Inspect or update the configured visual HUD badge text from the CLI",
+      usage: "weavetab plugin use ${pluginPkgName} badge [--label <text>]",
+      schema: {
+        label: z.string().optional().describe("Optional new HUD badge label"),
+      },
+      handler: async (args, cmdCtx) => {
+        if (args.label) {
+          await cmdCtx.storage.set("hudBadge", args.label);
+          return { status: "updated", hudBadge: args.label };
+        }
+        const saved = (await cmdCtx.storage.get<string>("hudBadge")) || cmdCtx.config.hudBadge;
+        return { hudBadge: saved, badgeColor: cmdCtx.config.badgeColor };
+      },
+    });
   },
 });
 `,
       };
+    }
 
     case "scraper":
       return {
@@ -195,6 +241,7 @@ export default definePlugin({
           config: { read: true, write: true, reason: "Controls scraping limits" },
           cdp: { evaluate: true, dom: true, reason: "Extracts DOM nodes and data" },
           tools: { add: true, reason: "Registers the extract_table_data tool" },
+          commands: { add: true, reason: "Registers the export-cache CLI command to dump scraped datasets" },
         },
         tools: [
           {
@@ -210,6 +257,20 @@ export default definePlugin({
             },
           },
         ],
+        commands: [
+          {
+            name: "export-cache",
+            description: "Print the latest scraped dataset stored in isolated plugin storage",
+            usage: `weavetab plugin use ${pluginPkgName} export-cache`,
+            parameters: { type: "object", properties: {} },
+          },
+        ],
+        instructions: `DOM extraction plugin with isolated JSON storage.
+MCP Tools:
+- extract_table_data: Scrape rows matching rowSelector (up to limit) and persist to scraped_data.json.
+CLI Commands:
+- weavetab plugin use ${pluginPkgName} export-cache: Dump cached scraped_data.json records to stdout.`,
+        agentsMd: `DOM extraction plugin with isolated JSON storage.`,
         src: `import { definePlugin, z, type PluginContext } from "@weavetab/sdk";
 
 export default definePlugin({
@@ -221,8 +282,6 @@ export default definePlugin({
   },
 
   async onLoad(ctx: PluginContext) {
-    ctx.logger.info("Scraper plugin loaded!");
-
     ctx.mcp.registerTool({
       name: "extract_table_data",
       description: "Scrapes structured table or list records from the active webpage and caches into isolated storage",
@@ -246,7 +305,6 @@ export default definePlugin({
           \`);
         }
 
-        // Save scraped dataset in isolated plugin storage (~/.weavetab/plugins/${pluginPkgName}/scraped_data.json)
         await ctx.storage.setJSON("scraped_data.json", { timestamp: Date.now(), count: rows.length, rows });
 
         return {
@@ -257,6 +315,16 @@ export default definePlugin({
             },
           ],
         };
+      },
+    });
+
+    ctx.cli.registerCommand({
+      name: "export-cache",
+      description: "Print the latest scraped dataset stored in isolated plugin storage",
+      usage: "weavetab plugin use ${pluginPkgName} export-cache",
+      handler: async (_args, cmdCtx) => {
+        const dataset = await cmdCtx.storage.getJSON("scraped_data.json");
+        return dataset ?? { count: 0, rows: [] };
       },
     });
   },
@@ -274,8 +342,28 @@ export default definePlugin({
           config: { read: true, write: true, reason: "Manages tool interception configuration" },
           tools: { override: ["browser_navigate"], reason: "Secures browser navigation actions" },
           hooks: { onBeforeAction: true, reason: "Audits and filters every tool call" },
+          commands: { add: true, reason: "Registers the blocklist CLI command to inspect blocked domains" },
         },
         tools: [],
+        commands: [
+          {
+            name: "blocklist",
+            description: "List or add blocked navigation domains via CLI",
+            usage: `weavetab plugin use ${pluginPkgName} blocklist [--add <domain>]`,
+            parameters: {
+              type: "object",
+              properties: {
+                add: { type: "string", description: "Domain to append to blocklist" },
+              },
+            },
+          },
+        ],
+        instructions: `Navigation guardrail and tool interceptor plugin.
+Interceptors:
+- Wraps browser_navigate to block domains listed in blockedDomains.
+CLI Commands:
+- weavetab plugin use ${pluginPkgName} blocklist [--add <domain>]: View or add blocked domains.`,
+        agentsMd: `Navigation guardrail and tool interceptor plugin.`,
         src: `import { definePlugin, z, type PluginContext } from "@weavetab/sdk";
 
 export default definePlugin({
@@ -287,9 +375,6 @@ export default definePlugin({
   },
 
   async onLoad(ctx: PluginContext) {
-    ctx.logger.info("Security Interceptor plugin loaded!");
-
-    // Override browser_navigate tool to protect against unsafe URLs
     if (ctx.mcp.overrideTool) {
       ctx.mcp.overrideTool("browser_navigate", async (args: { url: string }, session: any, config: any, original: any) => {
         const blocked = ctx.config.blockedDomains || [];
@@ -298,7 +383,7 @@ export default definePlugin({
         if (isBlocked) {
           ctx.logger.warn(\`Blocked navigation to unsafe URL: \${args.url}\`);
           if (session) {
-            await ctx.extension.showThought(session, \`🛡️ Blocked unsafe URL: \${args.url}\`, { durationMs: 4000 });
+            await ctx.extension.showThought(session, \`Blocked unsafe URL: \${args.url}\`, { durationMs: 4000 });
           }
           return {
             content: [{ type: "text", text: \`[Security Guard] Navigation blocked to prohibited destination: \${args.url}\` }],
@@ -306,16 +391,111 @@ export default definePlugin({
           };
         }
 
-        ctx.logger.info(\`Allowed navigation to: \${args.url}\`);
         return original ? await original(args, session, config) : null;
       });
     }
 
-    // Register global hook
-    ctx.hooks.beforeToolCall((toolName, args) => {
+    ctx.hooks.beforeToolCall((toolName) => {
       if (ctx.config.logInterceptions) {
         ctx.logger.debug(\`[Hook] Tool execution invoked: \${toolName}\`);
       }
+    });
+
+    ctx.cli.registerCommand({
+      name: "blocklist",
+      description: "List or add blocked navigation domains via CLI",
+      usage: "weavetab plugin use ${pluginPkgName} blocklist [--add <domain>]",
+      schema: {
+        add: z.string().optional().describe("Domain to append to blocklist"),
+      },
+      handler: async (args, cmdCtx) => {
+        const current = (await cmdCtx.storage.get<string[]>("blockedDomains")) || cmdCtx.config.blockedDomains || [];
+        if (args.add && !current.includes(args.add)) {
+          current.push(args.add);
+          await cmdCtx.storage.set("blockedDomains", current);
+        }
+        return { blockedDomains: current };
+      },
+    });
+  },
+});
+`,
+      };
+
+    case "automation":
+      return {
+        config: {
+          enabled: true,
+        },
+        perms: {
+          cdp: { evaluate: true, navigate: true, click: true, reason: "Executes multi-step automation sequences" },
+          filesystem: { read: ["*"], write: ["*"], reason: "Reads input files and writes outputs" },
+          tools: { add: true, reason: "Registers the run_automation tool" },
+          commands: { add: true, reason: "Registers the trigger CLI command for terminal workflow execution" },
+        },
+        tools: [
+          {
+            name: "run_automation",
+            description: "Runs a custom multi-step automation workflow",
+            parameters: {
+              type: "object",
+              properties: {
+                target: { type: "string", description: "Target to automate" },
+              },
+              required: ["target"],
+            },
+          },
+        ],
+        commands: [
+          {
+            name: "trigger",
+            description: "Trigger an automation workflow run directly from the CLI",
+            usage: `weavetab plugin use ${pluginPkgName} trigger --target <url>`,
+            parameters: {
+              type: "object",
+              properties: {
+                target: { type: "string", description: "Target URL or workflow identifier" },
+              },
+              required: ["target"],
+            },
+          },
+        ],
+        instructions: `Multi-step browser automation workflow plugin.
+MCP Tools:
+- run_automation: Execute workflow against target.
+CLI Commands:
+- weavetab plugin use ${pluginPkgName} trigger --target <url>: Run automation workflow from CLI.`,
+        agentsMd: `Multi-step browser automation workflow plugin.`,
+        src: `import { definePlugin, z, type PluginContext } from "@weavetab/sdk";
+
+export default definePlugin({
+  name: "${pluginPkgName}",
+
+  async onLoad(ctx: PluginContext) {
+    ctx.mcp.registerTool({
+      name: "run_automation",
+      description: "Runs a custom multi-step automation workflow",
+      schema: {
+        target: z.string().describe("Target to automate"),
+      },
+      handler: async (args) => {
+        ctx.logger.info(\`Running automation on \${args.target}\`);
+        return {
+          content: [{ type: "text", text: \`Automation complete for \${args.target}\` }],
+        };
+      },
+    });
+
+    ctx.cli.registerCommand({
+      name: "trigger",
+      description: "Trigger an automation workflow run directly from the CLI",
+      usage: "weavetab plugin use ${pluginPkgName} trigger --target <url>",
+      schema: {
+        target: z.string().describe("Target URL or workflow identifier"),
+      },
+      handler: async (args) => {
+        return { status: "triggered", target: args.target };
+      },
     });
   },
 });
@@ -335,6 +515,7 @@ export default definePlugin({
           extension: { hud: true, overlay: true, styles: true, scripts: true, reason: "Displays visual HUD feedback" },
           cdp: { evaluate: true, click: true, navigate: true, reason: "Executes automation in browser context" },
           tools: { add: true, reason: "Registers the example_action tool" },
+          commands: { add: true, reason: "Registers the status CLI command for terminal inspection" },
         },
         tools: [
           {
@@ -349,6 +530,26 @@ export default definePlugin({
             },
           },
         ],
+        commands: [
+          {
+            name: "status",
+            description: "Check invocation count and plugin configuration from the CLI",
+            usage: `weavetab plugin use ${pluginPkgName} status [--reset]`,
+            parameters: {
+              type: "object",
+              properties: {
+                reset: { type: "boolean", description: "Reset stored invocation counter" },
+              },
+            },
+          },
+        ],
+        instructions: `Standard Weavetab plugin with MCP tool, CLI command, and HUD integration.
+MCP Tools:
+- example_action: Echoes message, increments persistent counter, and updates browser HUD.
+CLI Commands:
+- weavetab plugin use ${pluginPkgName} status [--reset]: Inspect or reset invocation counter.
+- weavetab plugin use ${pluginPkgName} example_action --message "hello": Invoke MCP tool from CLI.`,
+        agentsMd: `Standard Weavetab plugin with MCP tool, CLI command, and HUD integration.`,
         src: `import { definePlugin, z, type PluginContext } from "@weavetab/sdk";
 
 export default definePlugin({
@@ -361,9 +562,6 @@ export default definePlugin({
   },
 
   async onLoad(ctx: PluginContext) {
-    ctx.logger.info("Plugin loaded with config:", ctx.config);
-
-    // 1. Register custom MCP tool
     ctx.mcp.registerTool({
       name: "example_action",
       description: "An example custom tool registered by this plugin with visual HUD feedback",
@@ -371,13 +569,11 @@ export default definePlugin({
         message: z.string().describe("A message to echo back and display on the screen"),
       },
       handler: async (args: { message: string }, session: any) => {
-        // Track invocations in isolated persistent storage (~/.weavetab/plugins/${pluginPkgName}/storage.json)
         const currentCount = (await ctx.storage.get<number>("invokeCount", 0)) || 0;
         await ctx.storage.set("invokeCount", currentCount + 1);
 
-        // Render animated thought bubble and HUD badge on the browser tab
         if (ctx.config.showVisualHud && session) {
-          await ctx.extension.showThought(session, \`✨ \${args.message}\`, { durationMs: 4000 });
+          await ctx.extension.showThought(session, \`\${args.message}\`, { durationMs: 4000 });
           await ctx.extension.setHudState(session, {
             badge: "Active",
             badgeColor: "#3b82f6",
@@ -395,7 +591,22 @@ export default definePlugin({
       },
     });
 
-    // 2. Lifecycle Hooks
+    ctx.cli.registerCommand({
+      name: "status",
+      description: "Check invocation count and plugin configuration from the CLI",
+      usage: "weavetab plugin use ${pluginPkgName} status [--reset]",
+      schema: {
+        reset: z.boolean().optional().describe("Reset stored invocation counter"),
+      },
+      handler: async (args, cmdCtx) => {
+        if (args.reset) {
+          await cmdCtx.storage.set("invokeCount", 0);
+        }
+        const invokeCount = (await cmdCtx.storage.get<number>("invokeCount", 0)) || 0;
+        return { plugin: ctx.name, invokeCount, config: cmdCtx.config };
+      },
+    });
+
     ctx.hooks.beforeToolCall((toolName, args) => {
       ctx.logger.debug(\`Before tool call: \${toolName}\`, args);
     });
@@ -406,54 +617,6 @@ export default definePlugin({
   },
 });
 `,
-      };
-    case "automation":
-      return {
-        config: {
-          enabled: true,
-        },
-        perms: {
-          cdp: { evaluate: true, navigate: true, click: true, reason: "Executes multi-step automation sequences" },
-          filesystem: { read: ["*"], write: ["*"], reason: "Reads input files and writes outputs" },
-          tools: { add: true, reason: "Registers the run_automation tool" },
-        },
-        tools: [
-          {
-            name: "run_automation",
-            description: "Runs a custom multi-step automation workflow",
-            parameters: {
-              type: "object",
-              properties: {
-                target: { type: "string", description: "Target to automate" },
-              },
-              required: ["target"],
-            }
-          }
-        ],
-        src: `import { definePlugin, z, type PluginContext } from "@weavetab/sdk";
-
-export default definePlugin({
-  name: "${pluginPkgName}",
-
-  async onLoad(ctx: PluginContext) {
-    ctx.logger.info("Automation plugin loaded");
-
-    ctx.mcp.registerTool({
-      name: "run_automation",
-      description: "Runs a custom multi-step automation workflow",
-      schema: {
-        target: z.string().describe("Target to automate"),
-      },
-      handler: async (args, session) => {
-        ctx.logger.info(\`Running automation on \${args.target}\`);
-        return {
-          content: [{ type: "text", text: \`Automation complete for \${args.target}\` }]
-        };
-      },
-    });
-  },
-});
-`
       };
   }
 }
@@ -491,7 +654,7 @@ async function runInit(): Promise<void> {
   const pluginName = (targetName || "my-weavetab-plugin").trim();
   const targetDir = path.resolve(process.cwd(), pluginName);
 
-  console.log(`\x1b[36m[Weavetab SDK]\x1b[0m Scaffolding [1m${templateType}[0m plugin in [1m${targetDir}[0m...\n`);
+  console.log(`\x1b[36m[Weavetab SDK]\x1b[0m Scaffolding \x1b[1m${templateType}\x1b[0m plugin in \x1b[1m${targetDir}\x1b[0m...\n`);
 
   if (fs.existsSync(targetDir) && fs.readdirSync(targetDir).length > 0) {
     console.error(`\x1b[31m[ERROR]\x1b[0m Directory "${pluginName}" already exists and is not empty.`);
@@ -501,7 +664,9 @@ async function runInit(): Promise<void> {
   fs.mkdirSync(path.join(targetDir, "src"), { recursive: true });
 
   const sdkVer = getSdkVersion();
-  const pkgName = pluginName.startsWith("@") ? pluginName : `weavetab-plugin-${pluginName.replace(/^weavetab-plugin-/, "")}`;
+  const pkgName = pluginName.startsWith("@")
+    ? pluginName
+    : `weavetab-plugin-${pluginName.replace(/^weavetab-plugin-/, "")}`;
   const tpl = getTemplateSource(templateType, pkgName);
 
   // 1. package.json
@@ -514,10 +679,13 @@ async function runInit(): Promise<void> {
     main: "dist/index.js",
     types: "dist/index.d.ts",
     type: "module",
+    files: ["dist", "weavetab.json", "README.md"],
     scripts: {
       build: "weavetab build",
       dev: "weavetab dev",
       validate: "weavetab validate",
+      preflight: "weavetab preflight",
+      prepublishOnly: "weavetab preflight",
       doctor: "weavetab doctor",
       publish: "weavetab publish",
       test: "node --test test/*.test.mjs",
@@ -562,14 +730,16 @@ async function runInit(): Promise<void> {
     version: "1.0.0",
     description: pkgJson.description,
     entry: "dist/index.js",
+    instructions: tpl.instructions,
     engines: {
       weavetab: `^${sdkVer}`,
       node: ">=18.0.0",
     },
-    environments: ["mcp"],
+    environments: ["mcp", "cli"],
     defaultConfig: tpl.config,
     permissions: tpl.perms,
     tools: tpl.tools,
+    commands: tpl.commands,
   };
 
   fs.writeFileSync(path.join(targetDir, "weavetab.json"), JSON.stringify(weavetabJson, null, 2) + "\n");
@@ -585,7 +755,7 @@ dist/
 `;
   fs.writeFileSync(path.join(targetDir, ".gitignore"), gitignore);
 
-  // 6. README.md (per-template, truthful)
+  // 7. README.md
   const readme = `# ${pkgJson.name}
 
 > ${tplMeta.description}. Built with \`@weavetab/sdk\` for [Weavetab](https://weavetab.dev).
@@ -596,44 +766,43 @@ This plugin was scaffolded with \`weavetab init --template ${templateType}\`.
 
 | Template | Use when |
 |---|---|
-| \`standard\` | General-purpose plugin (tools + storage + HUD) |
+| \`standard\` | General-purpose plugin (tools + CLI commands + storage + HUD) |
 | \`visual\` | HUD badges, overlays, DOM styling |
 | \`scraper\` | DOM extraction with sandboxed JSON storage |
 | \`automation\` | Multi-step browser workflows |
 | \`override\` | Intercepting / wrapping built-in tools |
 
-Switch templates: \`weavetab init <name> --template <id>\` · list: \`weavetab templates\`
+## CLI Commands & AI Agent Instructions
+- Run CLI commands: \`weavetab plugin use ${pkgJson.name} <command> [flags]\`
+- Inspect AI agent instructions: \`weavetab plugin use ${pkgJson.name}\`
 
 ## Architectural Guarantees
 - **Isolated Configuration**: \`~/.weavetab/plugins/${pkgJson.name}/config.json\`
 - **Sandboxed Storage**: key-value + JSON files under \`~/.weavetab/plugins/${pkgJson.name}/\`
 - **Permissions with reasons**: every capability in \`weavetab.json\` declares a \`reason\`
+- **Context-Safe Instructions**: strictly capped at ${MAX_INSTRUCTIONS_LINES} lines / ${MAX_INSTRUCTIONS_CHARS} chars inside \`weavetab.json\` so AI agent context never overflows
 
 ## Development
 
 \`\`\`bash
 npm install
-npm run build      # tsc + sync weavetab.json
+npm run build      # tsc + verify instructions budget + sync weavetab.json
 npm run dev        # watch mode
-npm run validate   # manifest + remote schema check (add --offline to skip network)
+npm run validate   # manifest + instructions + remote schema check (add --offline to skip network)
 npm run doctor     # env + schema + registry reachability
 \`\`\`
 
 ## Publish
 
 \`\`\`bash
-npm run publish    # npm publish + sync to https://weavetab.dev/discover
+npm run publish    # preflight gate + npm publish + sync to https://weavetab.dev/discover
 # dry run first:
 weavetab publish --dry-run
 \`\`\`
-
-## Manifest
-
-See [\`weavetab.json\` schema](https://weavetab.dev/schema/plugin.json) and [docs](https://weavetab.dev/docs).
 `;
   fs.writeFileSync(path.join(targetDir, "README.md"), readme);
 
-  // 7. Smoke test — validates manifest without a framework
+  // 8. Smoke test — validates manifest and instructions budget without a framework
   fs.mkdirSync(path.join(targetDir, "test"), { recursive: true });
   const smokeTest = `import { describe, it } from "node:test";
 import assert from "node:assert/strict";
@@ -643,8 +812,9 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const manifest = JSON.parse(fs.readFileSync(path.join(root, "weavetab.json"), "utf-8"));
+const instructions = (manifest.instructions || "").trim();
 
-describe("weavetab.json manifest", () => {
+describe("weavetab.json manifest & agent instructions budget", () => {
   it("has required fields", () => {
     assert.ok(manifest.name, "missing name");
     assert.ok(manifest.version, "missing version");
@@ -661,11 +831,18 @@ describe("weavetab.json manifest", () => {
       assert.ok(perm && perm.reason, "permission '" + cat + "' is missing a reason");
     }
   });
+
+  it("enforces strict instructions context window budget (<= ${MAX_INSTRUCTIONS_LINES} lines, <= ${MAX_INSTRUCTIONS_CHARS} chars)", () => {
+    assert.ok(instructions.length >= 20, "instructions is too short");
+    const lines = instructions.split(/\\r?\\n/).length;
+    assert.ok(lines <= ${MAX_INSTRUCTIONS_LINES}, "instructions exceeds ${MAX_INSTRUCTIONS_LINES} lines (" + lines + ")");
+    assert.ok(instructions.length <= ${MAX_INSTRUCTIONS_CHARS}, "instructions exceeds ${MAX_INSTRUCTIONS_CHARS} chars (" + instructions.length + ")");
+  });
 });
 `;
   fs.writeFileSync(path.join(targetDir, "test", "manifest.test.mjs"), smokeTest);
 
-  console.log(`\x1b[32m✔\x1b[0m Plugin \x1b[1m${pluginName}\x1b[0m scaffolded with \x1b[36m${templateType}\x1b[0m template!`);
+  console.log(`\x1b[32m✔\x1b[0m Plugin \x1b[1m${pluginName}\x1b[0m scaffolded with \x1b[36m${templateType}\x1b[0m template (including instructions & CLI commands)!`);
   console.log(`\n\x1b[1mNext steps:\x1b[0m`);
   console.log(`  cd ${pluginName}`);
   console.log(`  npm install`);
@@ -678,7 +855,7 @@ describe("weavetab.json manifest", () => {
 
 async function runBuild(): Promise<void> {
   const cwd = process.cwd();
-  console.log(`\n\x1b[36m[Weavetab SDK]\x1b[0m Building plugin in [1m${cwd}[0m...`);
+  console.log(`\n\x1b[36m[Weavetab SDK]\x1b[0m Building plugin in \x1b[1m${cwd}\x1b[0m...`);
 
   const pkgPath = path.join(cwd, "package.json");
   if (!fs.existsSync(pkgPath)) {
@@ -699,7 +876,7 @@ async function runBuild(): Promise<void> {
     }
   }
 
-  // 2. Synchronize weavetab.json and export tool schemas
+  // 2. Synchronize weavetab.json and export tool/command schemas
   const pkgJson = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
   const manifestPath = path.join(cwd, "weavetab.json");
   let manifest: any = {};
@@ -712,18 +889,26 @@ async function runBuild(): Promise<void> {
     }
   }
 
-  // Attempt to load compiled plugin module to extract Zod tools and hooks
+  // Attempt to load compiled plugin module to extract Zod tools, commands, and hooks
   const entryRel = pkgJson.main || manifest.entry || "dist/index.js";
   const entryAbs = path.join(cwd, entryRel);
   if (fs.existsSync(entryAbs)) {
     try {
       const mod = await import(pathToFileURL(entryAbs).href);
       const pluginDef = mod.default || mod.plugin || mod;
-      if (pluginDef && (pluginDef.name || pluginDef.tools || pluginDef.onBeforeAction || pluginDef.onAfterAction || pluginDef.onDOMMutation)) {
+      if (
+        pluginDef &&
+        (pluginDef.name ||
+          pluginDef.tools ||
+          pluginDef.commands ||
+          pluginDef.onBeforeAction ||
+          pluginDef.onAfterAction ||
+          pluginDef.onDOMMutation)
+      ) {
         manifest = exportManifest(pluginDef, manifest);
       }
     } catch {
-      // If module requires runtime MCP host or globals, fallback gracefully to existing manifest
+      // Fallback gracefully to existing manifest
     }
   }
 
@@ -734,6 +919,7 @@ async function runBuild(): Promise<void> {
   manifest.version = pkgJson.version || manifest.version || "1.0.0";
   manifest.description = pkgJson.description || manifest.description || "";
   manifest.entry = entryRel;
+  manifest.agentsMd = manifest.agentsMd || "AGENTS.md";
 
   if (!manifest.engines) {
     manifest.engines = {
@@ -764,8 +950,55 @@ async function runBuild(): Promise<void> {
     };
   }
 
+  // 3. Enforce instructions context budget (in-manifest instructions or legacy AGENTS.md)
+  let agentSource: string | null = null;
+  let sourceLabel = "instructions";
+
+  if (typeof manifest.instructions === "string" && manifest.instructions.trim()) {
+    agentSource = manifest.instructions.trim();
+    sourceLabel = "manifest 'instructions'";
+  } else {
+    const agentsRel = typeof manifest.agentsMd === "string" && manifest.agentsMd.trim() ? manifest.agentsMd.trim() : "AGENTS.md";
+    const agentsPath = path.join(cwd, agentsRel);
+    if (fs.existsSync(agentsPath)) {
+      agentSource = fs.readFileSync(agentsPath, "utf-8").trim();
+      sourceLabel = agentsRel;
+    }
+  }
+
+  if (!agentSource) {
+    console.error(
+      `\x1b[31m[ERROR]\x1b[0m Missing agent instructions in ${cwd}. Every plugin must declare 'instructions' in weavetab.json (or provide a legacy AGENTS.md) teaching AI agents how to use its tools and commands.`
+    );
+    process.exit(1);
+  }
+  const instructionsAudit = auditInstructions(agentSource, sourceLabel);
+  if (!instructionsAudit.valid) {
+    console.error(`\x1b[31m[ERROR]\x1b[0m ${sourceLabel} failed strict context budget verification:`);
+    for (const err of instructionsAudit.errors) {
+      console.error(`  \x1b[31m✖\x1b[0m ${err}`);
+    }
+    process.exit(1);
+  }
+
+  // 4. Enforce permissions.commands gate if CLI commands are declared
+  if (Array.isArray(manifest.commands) && manifest.commands.length > 0) {
+    const perms = manifest.permissions;
+    const allowed =
+      (Array.isArray(perms) && (perms.includes("commands") || perms.includes("commands.add"))) ||
+      (perms && typeof perms === "object" && perms.commands?.add === true);
+    if (!allowed) {
+      console.error(
+        `\x1b[31m[ERROR]\x1b[0m Manifest declares ${manifest.commands.length} CLI command(s) in 'commands', but 'permissions.commands.add: true' (with a 'reason') is missing.`
+      );
+      process.exit(1);
+    }
+  }
+
   fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
-  console.log(`  \x1b[32m✔\x1b[0m Synchronized and validated weavetab.json manifest (${manifest.tools?.length || 0} tools declared)`);
+  console.log(
+    `  \x1b[32m✔\x1b[0m Synchronized weavetab.json (${manifest.tools?.length || 0} tools, ${manifest.commands?.length || 0} CLI commands, ${sourceLabel}: ${instructionsAudit.lines}/${MAX_INSTRUCTIONS_LINES} lines)`
+  );
   console.log(`\x1b[32m✔ build complete.\x1b[0m\n`);
 }
 
@@ -808,7 +1041,9 @@ async function runManifest(): Promise<void> {
     const pluginDef = mod.default || mod.plugin || mod;
     manifest = exportManifest(pluginDef, manifest);
     fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
-    console.log(`  \x1b[32m✔\x1b[0m exported ${manifest.tools?.length || 0} tool(s) to weavetab.json:\n`);
+    console.log(
+      `  \x1b[32m✔\x1b[0m exported ${manifest.tools?.length || 0} tool(s) and ${manifest.commands?.length || 0} command(s) to weavetab.json:\n`
+    );
     console.log(JSON.stringify(manifest, null, 2));
   } catch (err: any) {
     console.error(`\x1b[31m[ERROR]\x1b[0m Failed to export manifest: ${err.message}`);
@@ -850,7 +1085,6 @@ async function runDev(): Promise<void> {
 async function runValidate(): Promise<void> {
   const cwd = process.cwd();
   const manifestPath = path.join(cwd, "weavetab.json");
-  const pkgPath = path.join(cwd, "package.json");
   const offline = args.includes("--offline");
 
   console.log(`\n\x1b[36m[Weavetab SDK]\x1b[0m Validating plugin in \x1b[1m${cwd}\x1b[0m...\n`);
@@ -876,12 +1110,48 @@ async function runValidate(): Promise<void> {
       warnings.push(`Entrypoint file '${manifest.entry}' does not exist yet. Run 'weavetab build' to compile.`);
     }
 
-    // Check permissions reasons
-    if (manifest.permissions) {
+    // Verify instructions context budget (in-manifest instructions or legacy AGENTS.md)
+    let agentSource: string | null = null;
+    let sourceLabel = "instructions";
+
+    if (typeof manifest.instructions === "string" && manifest.instructions.trim()) {
+      agentSource = manifest.instructions.trim();
+      sourceLabel = "manifest 'instructions'";
+    } else {
+      const agentsRel = typeof manifest.agentsMd === "string" && manifest.agentsMd.trim() ? manifest.agentsMd.trim() : "AGENTS.md";
+      const agentsPath = path.resolve(cwd, agentsRel);
+      if (fs.existsSync(agentsPath)) {
+        agentSource = fs.readFileSync(agentsPath, "utf-8").trim();
+        sourceLabel = agentsRel;
+      }
+    }
+
+    if (!agentSource) {
+      errors.push(
+        "Missing agent instructions in weavetab.json. Declare 'instructions' (or provide a legacy AGENTS.md) so AI agents know how to use this plugin."
+      );
+    } else {
+      const audit = auditInstructions(agentSource, sourceLabel);
+      errors.push(...audit.errors);
+      warnings.push(...audit.warnings);
+      if (audit.valid) {
+        console.log(
+          `  \x1b[32m→\x1b[0m ${sourceLabel} verified (${audit.lines}/${MAX_INSTRUCTIONS_LINES} lines, ${audit.chars}/${MAX_INSTRUCTIONS_CHARS} chars)`
+        );
+      }
+    }
+
+    // Check permissions reasons & commands gate
+    if (manifest.permissions && typeof manifest.permissions === "object" && !Array.isArray(manifest.permissions)) {
       for (const [category, perm] of Object.entries(manifest.permissions)) {
         if (typeof perm === "object" && perm !== null && !(perm as any).reason) {
-          warnings.push(`Permission category '${category}' is missing a 'reason' explanation.`);
+          errors.push(`Permission category '${category}' is missing a 'reason' explanation.`);
         }
+      }
+      if (Array.isArray(manifest.commands) && manifest.commands.length > 0 && !manifest.permissions.commands?.add) {
+        errors.push(
+          `Manifest declares ${manifest.commands.length} CLI command(s) in 'commands' without 'permissions.commands.add: true'.`
+        );
       }
     }
 
@@ -907,21 +1177,19 @@ async function runValidate(): Promise<void> {
       console.log(`  \x1b[33m→\x1b[0m Offline mode: skipping remote schema fetch.`);
     }
 
-    // Warnings output
     if (warnings.length > 0) {
       console.log(`\x1b[33m[WARNINGS]\x1b[0m`);
       warnings.forEach((w) => console.log(`  \x1b[33m⚠\x1b[0m ${w}`));
       console.log();
     }
 
-    // Errors output
     if (errors.length > 0) {
       console.error(`\x1b[31m[FAIL]\x1b[0m Manifest validation failed:`);
       errors.forEach((e) => console.error(`  \x1b[31m✖\x1b[0m ${e}`));
       process.exit(1);
     }
 
-    console.log(`\x1b[32m✔ weavetab.json manifest is strictly valid and compliant!\x1b[0m\n`);
+    console.log(`\x1b[32m✔ weavetab.json manifest & instructions are strictly valid and compliant!\x1b[0m\n`);
   } catch (err: any) {
     console.error(`\x1b[31m[ERROR]\x1b[0m Failed to parse weavetab.json: ${err.message}`);
     process.exit(1);
@@ -935,7 +1203,7 @@ async function runValidate(): Promise<void> {
 async function runDoctor(): Promise<void> {
   printBanner();
   const cwd = process.cwd();
-  console.log(`\x1b[36m[Weavetab Doctor]\x1b[0m Running plugin diagnostics in [1m${cwd}[0m...\n`);
+  console.log(`\x1b[36m[Weavetab Doctor]\x1b[0m Running plugin diagnostics in \x1b[1m${cwd}\x1b[0m...\n`);
 
   const checks: Array<{ title: string; status: "pass" | "warn" | "fail"; detail: string }> = [];
 
@@ -969,7 +1237,57 @@ async function runDoctor(): Promise<void> {
     checks.push({ title: "weavetab.json Manifest", status: "warn", detail: "Missing weavetab.json. Run 'weavetab build' to generate" });
   }
 
-  // Check 4: TypeScript configuration
+  // Check 4: Agent instructions context budget
+  let doctorSource: string | null = null;
+  let doctorLabel = "instructions";
+  try {
+    if (fs.existsSync(manifestPath)) {
+      const parsedManifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
+      if (typeof parsedManifest.instructions === "string" && parsedManifest.instructions.trim()) {
+        doctorSource = parsedManifest.instructions.trim();
+        doctorLabel = "weavetab.json 'instructions'";
+      } else if (parsedManifest.agentsMd) {
+        const p = path.join(cwd, parsedManifest.agentsMd);
+        if (fs.existsSync(p)) {
+          doctorSource = fs.readFileSync(p, "utf-8").trim();
+          doctorLabel = parsedManifest.agentsMd;
+        }
+      }
+    }
+  } catch {}
+
+  if (!doctorSource) {
+    const defaultAgentsPath = path.join(cwd, "AGENTS.md");
+    if (fs.existsSync(defaultAgentsPath)) {
+      doctorSource = fs.readFileSync(defaultAgentsPath, "utf-8").trim();
+      doctorLabel = "AGENTS.md";
+    }
+  }
+
+  if (doctorSource) {
+    const audit = auditInstructions(doctorSource, doctorLabel);
+    if (audit.valid) {
+      checks.push({
+        title: "Agent Instructions Context Budget",
+        status: "pass",
+        detail: `${doctorLabel}: ${audit.lines}/${MAX_INSTRUCTIONS_LINES} lines, ${audit.chars}/${MAX_INSTRUCTIONS_CHARS} chars`,
+      });
+    } else {
+      checks.push({
+        title: "Agent Instructions Context Budget",
+        status: "fail",
+        detail: audit.errors.join("; "),
+      });
+    }
+  } else {
+    checks.push({
+      title: "Agent Instructions Context Budget",
+      status: "fail",
+      detail: `Missing agent instructions in weavetab.json (max ${MAX_INSTRUCTIONS_LINES} lines / ${MAX_INSTRUCTIONS_CHARS} chars)`,
+    });
+  }
+
+  // Check 5: TypeScript configuration
   const tsconfigPath = path.join(cwd, "tsconfig.json");
   if (fs.existsSync(tsconfigPath)) {
     checks.push({ title: "TypeScript Setup", status: "pass", detail: "tsconfig.json configured" });
@@ -977,12 +1295,12 @@ async function runDoctor(): Promise<void> {
     checks.push({ title: "TypeScript Setup", status: "warn", detail: "No tsconfig.json found" });
   }
 
-  // Check 5: Sandboxed isolated storage directory
+  // Check 6: Sandboxed isolated storage directory
   const homeDir = process.env.HOME || process.env.USERPROFILE || "";
   const pluginsDir = path.join(homeDir, ".weavetab", "plugins");
   checks.push({ title: "Plugin Sandbox Isolation", status: "pass", detail: `Isolated storage path: ${pluginsDir}` });
 
-  // Check 6: Schema reachability
+  // Check 7: Schema reachability
   try {
     const res = await fetch(SCHEMA_URL, { signal: AbortSignal.timeout(5000) });
     checks.push({
@@ -994,7 +1312,7 @@ async function runDoctor(): Promise<void> {
     checks.push({ title: "Schema Reachability", status: "warn", detail: `${SCHEMA_URL} unreachable (offline?)` });
   }
 
-  // Check 7: Registry reachability
+  // Check 8: Registry reachability
   try {
     const res = await fetch(REGISTRY_URL, { signal: AbortSignal.timeout(5000) });
     checks.push({
@@ -1006,14 +1324,13 @@ async function runDoctor(): Promise<void> {
     checks.push({ title: "Registry Reachability", status: "warn", detail: `${REGISTRY_URL} unreachable (offline?)` });
   }
 
-  // Print results
   for (const c of checks) {
     if (c.status === "pass") {
-      console.log(`  \x1b[32m✔ [PASS]\x1b[0m [1m${c.title}[0m: [2m${c.detail}[0m`);
+      console.log(`  \x1b[32m✔ [PASS]\x1b[0m \x1b[1m${c.title}\x1b[0m: \x1b[2m${c.detail}\x1b[0m`);
     } else if (c.status === "warn") {
-      console.log(`  \x1b[33m⚠ [WARN]\x1b[0m [1m${c.title}[0m: [33m${c.detail}[0m`);
+      console.log(`  \x1b[33m⚠ [WARN]\x1b[0m \x1b[1m${c.title}\x1b[0m: \x1b[33m${c.detail}\x1b[0m`);
     } else {
-      console.log(`  \x1b[31m✖ [FAIL]\x1b[0m [1m${c.title}[0m: [31m${c.detail}[0m`);
+      console.log(`  \x1b[31m✖ [FAIL]\x1b[0m \x1b[1m${c.title}\x1b[0m: \x1b[31m${c.detail}\x1b[0m`);
     }
   }
 
@@ -1027,7 +1344,7 @@ async function runDoctor(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// 6. PUBLISH COMMAND — npm publish + sync to weavetab.dev registry
+// 6. PUBLISH COMMAND — preflight gate + npm publish + sync to weavetab.dev registry
 // ---------------------------------------------------------------------------
 
 async function runPublish(): Promise<void> {
@@ -1035,19 +1352,28 @@ async function runPublish(): Promise<void> {
   const dryRun = args.includes("--dry-run");
   console.log(`\n\x1b[36m[Weavetab SDK]\x1b[0m Publishing plugin in \x1b[1m${cwd}\x1b[0m...`);
 
-  const pkgPath = path.join(cwd, "package.json");
-  if (!fs.existsSync(pkgPath)) {
-    console.error(`\x1b[31m[ERROR]\x1b[0m package.json not found in ${cwd}`);
-    process.exit(1);
+  // Mandatory pre-publish gate: block npm publish if AGENTS.md or manifest fails preflight
+  const preflight = runPreflight(cwd);
+  if (preflight.warnings.length > 0) {
+    for (const w of preflight.warnings) {
+      console.log(`  \x1b[33m!\x1b[0m ${w}`);
+    }
   }
-  const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
-  if (!pkg.name) {
-    console.error(`\x1b[31m[ERROR]\x1b[0m package.json is missing a name field.`);
+  if (!preflight.success) {
+    console.error(`\x1b[31m[BLOCKED]\x1b[0m Pre-publish verification failed — refusing to push to npm:`);
+    for (const err of preflight.errors) {
+      console.error(`  \x1b[31m✖\x1b[0m ${err}`);
+    }
     process.exit(1);
   }
 
+  const pkgPath = path.join(cwd, "package.json");
+  const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+
   if (dryRun) {
-    console.log(`  \x1b[33m→\x1b[0m Dry run: would run 'npm publish' then POST { packageName: "${pkg.name}" } to https://weavetab.dev/api/plugins/sync`);
+    console.log(
+      `  \x1b[32m✔\x1b[0m Preflight passed. Dry run: would run 'npm publish' then POST { packageName: "${pkg.name}" } to https://weavetab.dev/api/plugins/sync`
+    );
     return;
   }
 
@@ -1070,7 +1396,9 @@ async function runPublish(): Promise<void> {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       console.error(`\x1b[31m[ERROR]\x1b[0m Registry sync failed (${res.status}): ${(data as any).error || res.statusText}`);
-      console.log(`  \x1b[33m→\x1b[0m npm package is live. Retry sync later: POST { packageName: "${pkg.name}" } to https://weavetab.dev/api/plugins/sync`);
+      console.log(
+        `  \x1b[33m→\x1b[0m npm package is live. Retry sync later: POST { packageName: "${pkg.name}" } to https://weavetab.dev/api/plugins/sync`
+      );
       process.exit(1);
     }
     console.log(`\x1b[32m✔ Published ${pkg.name} and synced to https://weavetab.dev/discover\x1b[0m\n`);
@@ -1084,10 +1412,11 @@ async function runPublish(): Promise<void> {
 // ROUTER
 // ---------------------------------------------------------------------------
 
-async function runPreflightCmd(): Promise<void> {
+async function runPreflightCmd(targetDir?: string): Promise<void> {
   printBanner();
-  console.log(`\x1b[36m[Weavetab SDK]\x1b[0m Running plugin preflight verification...\n`);
-  const res = runPreflight(process.cwd());
+  const cwd = targetDir ? path.resolve(process.cwd(), targetDir) : process.cwd();
+  console.log(`\x1b[36m[Weavetab SDK]\x1b[0m Running plugin preflight verification in \x1b[1m${cwd}\x1b[0m...\n`);
+  const res = runPreflight(cwd);
 
   if (res.warnings.length > 0) {
     console.log(`\x1b[33m[WARNINGS]\x1b[0m`);
@@ -1136,7 +1465,7 @@ async function main() {
       await runDoctor();
       break;
     case "preflight":
-      await runPreflightCmd();
+      await runPreflightCmd(args[1]);
       break;
     case "publish":
       await runPublish();

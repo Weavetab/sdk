@@ -1,119 +1,97 @@
 ---
-title: "Plugin Middleware & Hooks"
-description: "Interceptor hooks: onBeforeAction, onAfterAction, and onDOMMutation."
+title: "Lifecycle Hooks & Middleware"
+description: "Intercepting tool execution, mutating parameters, inspecting DOM mutation streams, and arming security filters."
 product: sdk
 section: sdk-plugins
-icon: ShieldAlert
+order: 7
+icon: Webhook
 slug: plugin-hooks
 ---
 
-# Plugin Middleware & Interceptor Hooks
+# Lifecycle Hooks & Middleware
 
-Weavetab plugins do not just register isolated tools. Through the interceptor pipeline, plugins act as **middleware** running beneath every MCP tool call executed by AI agents across web and desktop contexts.
-
-Common use cases:
-- **Automated Ad & Tracker Blocking**: Block navigations or clicks targeting known advertising or phishing domains.
-- **Enterprise Auth Injection**: Automatically inject OAuth tokens, session cookies, or custom headers before actions execute.
-- **Data Loss Prevention (DLP) & PII Scrubbing**: Inspect, mask, or redact sensitive fields (SSNs, credit cards, bearer tokens) in tool results before the agent receives them.
-- **Live DOM Mutation Listening**: Stream element insertions, deletions, and attribute changes across page state transitions.
+Weavetab plugins can register middleware interceptors that execute around core and third-party tool calls. This allows plugins to audit executions, enforce corporate security policies, scrub sensitive data, and monitor real-time DOM changes.
 
 ---
 
-## 1. `onBeforeAction(tool, args, session)`
+## 1. Available Lifecycle Hooks
 
-Runs immediately before any tool handler (built-in or plugin-provided) executes.
+| Hook | Phase | Permissions Key |
+|---|---|---|
+| `onBeforeAction` | Runs **before** an MCP tool is dispatched to CDP. Can modify arguments or block the action entirely. | `permissions.hooks.onBeforeAction` |
+| `onAfterAction` | Runs **after** an MCP tool finishes execution. Can inspect, augment, or redact output before it returns to the agent. | `permissions.hooks.onAfterAction` |
+| `onDOMMutation` | Fires continuously when the browser tab DOM tree mutates. Delivers delta batches. | `permissions.hooks.onDOMMutation` |
+| `onLoad` | Runs once when the plugin is loaded into the MCP server or CLI process. | None (standard lifecycle) |
+| `onUnload` | Runs when the plugin is unmounted or the server process receives `SIGTERM`. | None (standard lifecycle) |
 
-### Signature:
-```typescript
-type BeforeActionHook = (
-  toolName: string,
-  args: Record<string, any>,
-  session: any
-) => Promise<Record<string, any> | { __blocked: true; reason: string } | void | undefined>;
-```
+---
 
-### Pattern A: Blocking Dangerous or Unauthorized Actions
-If an action violates policy, return `{ __blocked: true, reason: string }`. The tool execution will be halted immediately, and the MCP agent will receive an error without touching the browser.
+## 2. Pre-Execution Interception (`onBeforeAction`)
 
-```typescript
-import { definePlugin } from "@weavetab/sdk";
-
-export default definePlugin({
-  name: "enterprise-guard",
-  version: "1.0.0",
-  onBeforeAction: async (tool, args) => {
-    // Block clicks on destructive or untrusted controls
-    if (tool === "browser_click" && args.selector?.includes(".delete-account")) {
-      return {
-        __blocked: true,
-        reason: "Account deletion actions are restricted by enterprise policy.",
-      };
-    }
-
-    // Block navigation to known tracking or malicious domains
-    if (tool === "browser_navigate" && args.url?.includes("tracking-service.com")) {
-      return {
-        __blocked: true,
-        reason: "Navigation to tracking domains is prohibited.",
-      };
-    }
-  },
-});
-```
-
-### Pattern B: Mutating Arguments (Auth & Header Injection)
-Return a modified `args` object to enrich or rewrite parameters before the tool receives them:
+`onBeforeAction` receives the target tool name, its arguments, and an optional browser session reference:
 
 ```typescript
 import { definePlugin } from "@weavetab/sdk";
 
 export default definePlugin({
-  name: "auth-injector",
+  name: "weavetab-plugin-policy",
   version: "1.0.0",
+  instructions: "Policy enforcement rules and validation interceptors.",
+
   onBeforeAction: async (tool, args, session) => {
-    if (tool === "browser_navigate" && args.url?.startsWith("https://api.internal/")) {
+    // 1. Audit log
+    console.log(`[Policy] Pre-action check for: ${tool}`);
+
+    // 2. Block restricted domains
+    if (tool === "browser_navigate" && typeof args.url === "string") {
+      const parsed = new URL(args.url);
+      if (parsed.hostname.endsWith(".internal.bank")) {
+        return {
+          __blocked: true,
+          reason: "Direct AI navigation to internal banking endpoints is strictly blocked by corporate policy.",
+        };
+      }
+    }
+
+    // 3. Mutate arguments (e.g. enforce stealth mode on searches)
+    if (tool === "browser_find" && args.extractQuery) {
       return {
         ...args,
-        headers: {
-          ...args.headers,
-          Authorization: `Bearer ${process.env.CORP_API_TOKEN}`,
-        },
+        extractQuery: args.extractQuery.trim().toLowerCase(),
       };
     }
   },
 });
 ```
 
+If `onBeforeAction` returns an object containing `{ __blocked: true, reason: string }`, the execution pipeline terminates immediately, the tool is never called, and an error is returned to the agent with the provided reason.
+
 ---
 
-## 2. `onAfterAction(tool, result, session, args)`
+## 3. Post-Execution Interception (`onAfterAction`)
 
-Runs immediately after a tool finishes execution. Receives the raw tool result and can transform, redact, or record telemetry.
+`onAfterAction` receives the tool name, its arguments, and the raw output result returned by the tool handler:
 
-### Signature:
 ```typescript
-type AfterActionHook = (
-  toolName: string,
-  result: any,
-  session: CDP.Client | null,
-  args?: Record<string, any>
-) => Promise<any | void | undefined>;
-```
-
-### Pattern: PII Redaction & Data Loss Prevention (DLP)
-```typescript
-import { definePlugin } from "@weavetab/sdk";
-
 export default definePlugin({
-  name: "pii-masker",
+  name: "weavetab-plugin-scrubber",
   version: "1.0.0",
-  onAfterAction: async (tool, result) => {
-    if (tool === "browser_map" || tool === "browser_scrape") {
-      const sanitized = JSON.stringify(result)
-        .replace(/\b\d{3}-\d{2}-\d{4}\b/g, "[REDACTED-SSN]")
-        .replace(/\b(?:\d{4}-){3}\d{4}\b/g, "[REDACTED-CC]");
-      return JSON.parse(sanitized);
+  instructions: "Output scrubber and pattern redactor.",
+
+  onAfterAction: async (tool, args, result) => {
+    // Redact credit card numbers matching regex patterns in any text output
+    if (result && Array.isArray(result.content)) {
+      result.content = result.content.map((item: any) => {
+        if (item.type === "text" && typeof item.text === "string") {
+          return {
+            ...item,
+            text: item.text.replace(/\b(?:\d{4}[ -]?){3}\d{4}\b/g, "[REDACTED_CARD]"),
+          };
+        }
+        return item;
+      });
     }
+
     return result;
   },
 });
@@ -121,43 +99,23 @@ export default definePlugin({
 
 ---
 
-## 3. `onDOMMutation(delta, session)`
+## 4. Real-time DOM Mutation Streams (`onDOMMutation`)
 
-Receives real-time DOM mutation events whenever page elements are added, removed, or modified.
+When the active tab's DOM tree updates, Weavetab's native Rust delta engine emits structured mutation batches:
 
-### Signature:
 ```typescript
-type DOMMutationHook = (
-  delta: DOMMutationDelta,
-  session: CDP.Client | null
-) => Promise<void>;
-
-interface DOMMutationDelta {
-  type: "dom_diff" | "rich_delta" | "cdp_mutation";
-  timestamp: number;
-  url?: string;
-  added?: Array<any>;
-  removed?: Array<any>;
-  changed?: Array<any>;
-  stable_count?: number;
-  iframes?: Array<{ frameUrl: string; status: "added" | "removed" | "changed"; elementCount: number }>;
-  significantChange?: boolean;
-}
-```
-
-### Pattern: Live Mutation Monitoring
-```typescript
-import { definePlugin } from "@weavetab/sdk";
-
 export default definePlugin({
-  name: "mutation-sentinel",
+  name: "weavetab-plugin-live-watcher",
   version: "1.0.0",
+  instructions: "Live DOM watcher and real-time state change tracker.",
+
   onDOMMutation: async (delta) => {
-    if (delta.significantChange) {
-      console.log(`[Sentinel] Major DOM change detected on ${delta.url}:`);
-      console.log(` - Added elements: ${delta.added?.length ?? 0}`);
-      console.log(` - Removed elements: ${delta.removed?.length ?? 0}`);
-      console.log(` - Changed properties: ${delta.changed?.length ?? 0}`);
+    // delta contains added, removed, and modified nodes
+    const addedCount = delta.added?.length ?? 0;
+    const removedCount = delta.removed?.length ?? 0;
+
+    if (addedCount > 0) {
+      console.log(`[LiveWatcher] +${addedCount} nodes added to active DOM.`);
     }
   },
 });
@@ -165,26 +123,9 @@ export default definePlugin({
 
 ---
 
-## 4. Manifest Security Declaration
+## 5. Middleware Pipeline Ordering
 
-When using middleware hooks, declare the `hooks` permission in `weavetab.json`:
-
-```json
-{
-  "permissions": {
-    "hooks": {
-      "onBeforeAction": true,
-      "onAfterAction": true,
-      "onDOMMutation": true,
-      "reason": "Enforces enterprise ad-blocking, security policies, and PII masking"
-    }
-  },
-  "middleware": {
-    "onBeforeAction": true,
-    "onAfterAction": true,
-    "onDOMMutation": true
-  }
-}
-```
-
-The SDK CLI auto-generates the `middleware` block when you run `weavetab build` or `weavetab manifest`.
+When multiple plugins are active, hooks execute in registration order:
+1. All `onBeforeAction` hooks execute sequentially. If any hook returns `__blocked: true`, the pipeline aborts.
+2. The core tool handler (or tool override) executes.
+3. All `onAfterAction` hooks execute in reverse order, allowing outer plugins to filter inner plugin modifications.

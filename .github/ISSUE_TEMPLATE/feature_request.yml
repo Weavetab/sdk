@@ -1,0 +1,30 @@
+name: Feature Request
+description: Propose a new capability or API addition for @weavetab/sdk
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve `@weavetab/sdk`!
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: What challenge or use-case are you addressing?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution / API Design
+      description: Describe the ideal SDK methods, types, or builder semantics.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Any other approaches or existing workarounds evaluated.
+    validations:
+      required: false

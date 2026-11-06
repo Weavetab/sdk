@@ -1,6 +1,18 @@
+export class PluginError extends Error {
+  public readonly code: string;
+  public readonly details?: Record<string, any>;
+
+  constructor(code: string, message: string, details?: Record<string, any>) {
+    super(`[${code}] ${message}`);
+    this.name = "PluginError";
+    this.code = code;
+    this.details = details;
+  }
+}
+
 /**
  * @weavetab/sdk
- * Official TypeScript SDK for developing Weavetab plugins, tools, isolated storage, and visual extensions.
+ * Official TypeScript SDK for developing Weavetab plugins, tools, CLI commands, isolated storage, and visual extensions.
  *
  * Copyright (c) 2026 fy2ne <hello@fy2ne.me>. Licensed under the MIT License.
  */
@@ -76,21 +88,6 @@ export interface DefinedTool<TSchema = any, TReturn = any> {
 
 /**
  * Type-safe helper to define an MCP Tool with automatic Zod schema inference.
- *
- * @example
- * ```ts
- * const myTool = defineTool({
- *   name: "filter_ads",
- *   description: "Filters ad frames and banners",
- *   schema: {
- *     targetDomain: z.string().describe("Domain to filter"),
- *     aggressive: z.boolean().default(false).describe("Aggressive filtering"),
- *   },
- *   handler: async ({ targetDomain, aggressive }, session) => {
- *     return { content: [{ type: "text", text: `Filtered ${targetDomain}` }] };
- *   }
- * });
- * ```
  */
 export function defineTool<TSchema extends z.ZodRawShape | z.ZodTypeAny = any, TReturn = any>(
   definition: DefinedTool<TSchema, TReturn>
@@ -189,15 +186,60 @@ export function defineResource(definition: DefinedResource): DefinedResource {
   return definition;
 }
 
+export interface PluginCommandContext<TConfig = Record<string, any>> {
+  args: string[];
+  flags: Record<string, any>;
+  tab?: TabClient;
+  desktop?: DesktopClient;
+  storage: PluginStorage;
+  config: TConfig;
+  logger: PluginLogger;
+  session?: any;
+  getSession?: () => Promise<any>;
+  [key: string]: any;
+}
+
+export interface DefinedCommand<TSchema = any, TReturn = any> {
+  name: string;
+  description: string;
+  usage?: string;
+  schema?: TSchema;
+  parameters?: any;
+  examples?: string[];
+  /** When true, establishes a browser/CDP session before running the command. Defaults to false for fast CLI execution. */
+  requiresSession?: boolean;
+  handler: (
+    args: InferToolArgs<TSchema>,
+    ctx: PluginCommandContext
+  ) => Promise<TReturn | Record<string, any> | string | void> | TReturn | Record<string, any> | string | void;
+}
+
+export function defineCommand<TSchema extends z.ZodRawShape | z.ZodTypeAny = any, TReturn = any>(
+  definition: DefinedCommand<TSchema, TReturn>
+): DefinedCommand<TSchema, TReturn> {
+  return definition;
+}
+
+export interface PluginCliContext {
+  /** Register a CLI command invoked via `weavetab plugin use <plugin> <command>` */
+  registerCommand: <TSchema = any>(command: DefinedCommand<TSchema>) => void;
+  /** Unregister a CLI command by name */
+  unregisterCommand?: (name: string) => void;
+}
+
 export interface PluginMcpContext {
-  /** Register a `/` command (MCP prompt) */
+  /** Register a `/` prompt utility (MCP prompt) */
   registerPrompt: (prompt: DefinedPrompt<any>) => void;
-  /** Register an `@` mention (MCP resource or resource template) */
+  /** Register an `@` resource utility (MCP resource or resource template) */
   registerResource: (resource: DefinedResource) => void;
-  /** Unregister a `/` command by name */
+  /** Register a CLI command invoked via `weavetab plugin use <plugin> <command>` */
+  registerCommand?: <TSchema = any>(command: DefinedCommand<TSchema>) => void;
+  /** Unregister a `/` prompt utility by name */
   unregisterPrompt?: (name: string) => void;
-  /** Unregister an `@` mention by fixed URI or template name */
+  /** Unregister an `@` resource utility by fixed URI or template name */
   unregisterResource?: (uriOrName: string) => void;
+  /** Unregister a CLI command by name */
+  unregisterCommand?: (name: string) => void;
   /** Register a new MCP tool into the Weavetab runtime */
   registerTool: <T = any>(tool: McpToolRegistration<T>) => void;
   /** Override or wrap an existing built-in tool (e.g. browser_eval, browser_navigate, browser_click) */
@@ -244,6 +286,8 @@ export interface PluginExtensionBridge {
   clearThought(session: any): Promise<void>;
   /** Inject custom CSS styles into the active page DOM */
   injectStyles(session: any, css: string): Promise<void>;
+  /** Alias for injectStyles */
+  injectCss?(session: any, css: string): Promise<void>;
   /** Inject and execute JavaScript in the page context */
   injectScript<T = any>(session: any, js: string): Promise<T>;
   /** Temporarily hide all Weavetab HUD overlays (e.g. for clean screenshots/PDFs) */
@@ -403,6 +447,8 @@ export interface PluginContext {
   extension: PluginExtensionBridge;
   /** MCP server context for registering, overriding, or removing tools */
   mcp: PluginMcpContext;
+  /** CLI context for registering plugin CLI commands (`weavetab plugin use <plugin> <cmd>`) */
+  cli: PluginCliContext;
   /** Lifecycle and execution hooks */
   hooks: PluginHooks;
   /** Cross-session site learning and persistent profile memory */
@@ -434,10 +480,16 @@ export interface WeavetabPluginDefinition {
   description?: string;
   /** Static tool registrations */
   tools?: Array<DefinedTool | McpToolRegistration>;
-  /** Static `/` command (MCP prompt) registrations */
+  /** Static CLI command registrations (`weavetab plugin use <plugin> <cmd>`) */
+  commands?: Array<DefinedCommand<any>>;
+  /** Static `/` prompt utility (MCP prompt) registrations */
   prompts?: Array<DefinedPrompt<any>>;
-  /** Static `@` mention (MCP resource) registrations */
+  /** Static `@` resource utility (MCP resource) registrations */
   resources?: DefinedResource[];
+  /** Relative path to the plugin's AI agent playbook (legacy fallback) */
+  agentsMd?: string;
+  /** Operational heuristics and instructions for AI agents interacting with this plugin */
+  instructions?: string;
   /** Static tool overrides */
   overrides?: ToolOverrideDefinition[];
   /** Built-in tools to remove */
@@ -462,13 +514,18 @@ export interface WeavetabPluginDefinition {
 }
 
 export interface WeavetabPermissions {
+  commands?: {
+    /** Must be true for the plugin to register CLI commands (`weavetab plugin use <plugin> <cmd>`) */
+    add?: boolean;
+    reason?: string;
+  };
   prompts?: {
-    /** Must be true for the plugin to register `/` commands (MCP prompts) */
+    /** Must be true for the plugin to register `/` prompt utilities (MCP prompts) */
     add?: boolean;
     reason?: string;
   };
   resources?: {
-    /** Must be true for the plugin to register `@` mentions (MCP resources) */
+    /** Must be true for the plugin to register `@` resource utilities (MCP resources) */
     add?: boolean;
     reason?: string;
   };
@@ -543,6 +600,16 @@ export interface WeavetabManifestTool {
   schema?: Record<string, any>;
 }
 
+export interface WeavetabManifestCommand {
+  name: string;
+  description: string;
+  usage?: string;
+  parameters?: Record<string, any>;
+  schema?: Record<string, any>;
+  examples?: string[];
+  requiresSession?: boolean;
+}
+
 export interface WeavetabManifestPrompt {
   name: string;
   description?: string;
@@ -564,12 +631,15 @@ export interface WeavetabManifest {
   version: string;
   description?: string;
   entry?: string;
+  agentsMd?: string;
+  instructions?: string;
   author?: string | { name: string; email?: string; url?: string; role?: string };
   authors?: Array<{ name: string; email?: string; url?: string; role?: string }>;
   engines?: Record<string, string>;
   environments?: string[];
   permissions?: WeavetabManifestPermissions;
   tools?: WeavetabManifestTool[];
+  commands?: WeavetabManifestCommand[];
   prompts?: WeavetabManifestPrompt[];
   resources?: WeavetabManifestResource[];
   defaultConfig?: Record<string, any>;
@@ -581,25 +651,6 @@ export interface WeavetabManifest {
 
 /**
  * Fluent builder class for creating enterprise Weavetab plugins.
- *
- * @example
- * ```ts
- * import { PluginBuilder } from "@weavetab/sdk";
- *
- * export default new PluginBuilder("my-plugin")
- *   .version("1.0.0")
- *   .description("Enterprise workflow plugin")
- *   .defaultConfig({ enableHud: true })
- *   .addTool({
- *     name: "my_action",
- *     description: "Performs an automated action",
- *     handler: async (args, session) => ({ content: [{ type: "text", text: "Done" }] })
- *   })
- *   .onLoad(async (ctx) => {
- *     ctx.logger.info("Ready!");
- *   })
- *   .build();
- * ```
  */
 export class PluginBuilder {
   private def: WeavetabPluginDefinition;
@@ -608,6 +659,7 @@ export class PluginBuilder {
     this.def = {
       name,
       tools: [],
+      commands: [],
       prompts: [],
       resources: [],
       overrides: [],
@@ -627,33 +679,35 @@ export class PluginBuilder {
     return this;
   }
 
+  agentsMd(path: string): this {
+    this.def.agentsMd = path;
+    return this;
+  }
+
+  instructions(text: string): this {
+    this.def.instructions = text;
+    return this;
+  }
+
   defaultConfig(config: Record<string, any>): this {
     this.def.defaultConfig = { ...this.def.defaultConfig, ...config };
     return this;
   }
 
-  /**
-   * Set or merge explicit permissions for this plugin.
-   */
   permissions(perms: WeavetabPermissions): this {
     this.def.permissions = { ...(this.def.permissions || {}), ...perms };
     return this;
   }
 
-  /**
-   * Grant permission to register new MCP tools into the runtime.
-   */
-  allowToolAdd(): this {
+  allowToolAdd(reason?: string): this {
     if (!this.def.permissions) this.def.permissions = {};
     const t = this.def.permissions.tools ?? {};
     t.add = true;
+    if (reason) t.reason = reason;
     this.def.permissions.tools = t;
     return this;
   }
 
-  /**
-   * Grant permission to override or wrap specific built-in tools.
-   */
   allowOverride(...names: string[]): this {
     if (!this.def.permissions) this.def.permissions = {};
     const t = this.def.permissions.tools ?? {};
@@ -662,9 +716,6 @@ export class PluginBuilder {
     return this;
   }
 
-  /**
-   * Grant permission to remove or disable specific built-in tools.
-   */
   allowRemove(...names: string[]): this {
     if (!this.def.permissions) this.def.permissions = {};
     const t = this.def.permissions.tools ?? {};
@@ -673,21 +724,45 @@ export class PluginBuilder {
     return this;
   }
 
-  allowPromptAdd(): this {
+  allowCommandAdd(reason?: string): this {
     if (!this.def.permissions) this.def.permissions = {};
-    this.def.permissions.prompts = { ...(this.def.permissions.prompts ?? {}), add: true };
+    this.def.permissions.commands = {
+      ...(this.def.permissions.commands ?? {}),
+      add: true,
+      ...(reason ? { reason } : {}),
+    };
     return this;
   }
 
-  allowResourceAdd(): this {
+  allowPromptAdd(reason?: string): this {
     if (!this.def.permissions) this.def.permissions = {};
-    this.def.permissions.resources = { ...(this.def.permissions.resources ?? {}), add: true };
+    this.def.permissions.prompts = {
+      ...(this.def.permissions.prompts ?? {}),
+      add: true,
+      ...(reason ? { reason } : {}),
+    };
+    return this;
+  }
+
+  allowResourceAdd(reason?: string): this {
+    if (!this.def.permissions) this.def.permissions = {};
+    this.def.permissions.resources = {
+      ...(this.def.permissions.resources ?? {}),
+      add: true,
+      ...(reason ? { reason } : {}),
+    };
     return this;
   }
 
   addTool<TArgs = any>(tool: McpToolRegistration<TArgs>): this {
     if (!this.def.tools) this.def.tools = [];
     this.def.tools.push(tool);
+    return this;
+  }
+
+  addCommand<TSchema = any>(command: DefinedCommand<TSchema>): this {
+    if (!this.def.commands) this.def.commands = [];
+    this.def.commands.push(command);
     return this;
   }
 
@@ -725,27 +800,16 @@ export class PluginBuilder {
     return this;
   }
 
-  /**
-   * Enterprise interceptor hook called before any tool action executes.
-   * Can inspect, modify, or block action arguments.
-   */
   onBeforeAction(handler: BeforeActionHook): this {
     this.def.onBeforeAction = handler;
     return this;
   }
 
-  /**
-   * Enterprise interceptor hook called after any tool action completes.
-   * Can inspect or transform the tool result.
-   */
   onAfterAction(handler: AfterActionHook): this {
     this.def.onAfterAction = handler;
     return this;
   }
 
-  /**
-   * Real-time observer hook called when DOM mutations or action deltas occur.
-   */
   onDOMMutation(handler: DOMMutationHook): this {
     this.def.onDOMMutation = handler;
     return this;
@@ -756,88 +820,35 @@ export class PluginBuilder {
   }
 }
 
-/**
- * Factory helper to instantiate a fluent PluginBuilder.
- */
 export function createPlugin(name: string): PluginBuilder {
   return new PluginBuilder(name);
 }
 
-/**
- * Helper to define and type-check a Weavetab Plugin Definition.
- *
- * @example
- * ```ts
- * import { definePlugin } from "@weavetab/sdk";
- *
- * export default definePlugin({
- *   name: "my-plugin",
- *   defaultConfig: {
- *     enableHud: true,
- *     threshold: 10
- *   },
- *   async onLoad(ctx) {
- *     // Read isolated configuration (~/.weavetab/plugins/my-plugin/config.json)
- *     const { enableHud } = ctx.config;
- *
- *     // Register tool
- *     ctx.mcp.registerTool({
- *       name: "my_tool",
- *       description: "Example custom tool",
- *       handler: async (args, session) => {
- *         if (enableHud && session) {
- *           await ctx.extension.showThought(session, "Executing custom workflow!");
- *         }
- *         return { content: [{ type: "text", text: "Done" }] };
- *       }
- *     });
- *   }
- * });
- * ```
- */
 export function definePlugin(plugin: WeavetabPluginDefinition): WeavetabPluginDefinition {
   return plugin;
 }
 
-/**
- * Helper to define and type-check a standalone MCP Tool Registration.
- */
 export function createTool<TArgs = any>(tool: McpToolRegistration<TArgs>): McpToolRegistration<TArgs> {
   return tool;
 }
 
-/**
- * Helper to define and type-check a Tool Override Definition.
- */
 export function createOverride<TArgs = any>(override: ToolOverrideDefinition<TArgs>): ToolOverrideDefinition<TArgs> {
   return override;
 }
 
-/**
- * Helper to define and type-check a Weavetab Plugin Manifest (`weavetab.json`).
- */
 export function defineManifest(manifest: WeavetabManifest): WeavetabManifest {
   return manifest;
 }
 
-/**
- * Sleep utility helper for async delays in plugin actions.
- */
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/**
- * Utility to format millisecond duration into human-readable string (e.g. 1.2s, 450ms).
- */
 export function formatDuration(ms: number): string {
   if (ms < 1000) return `${Math.round(ms)}ms`;
   return `${(ms / 1000).toFixed(2)}s`;
 }
 
-/**
- * Utility to match a URL against domain patterns (e.g. `*.example.com`, `example.org`).
- */
 export function matchUrlPattern(url: string, pattern: string): boolean {
   try {
     const parsed = new URL(url);

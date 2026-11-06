@@ -1,6 +1,6 @@
 # @weavetab/sdk
 
-> Official TypeScript SDK and Developer Toolkit for building plugins, tools, isolated configurations, and visual extensions for **[Weavetab](https://github.com/weavetab/mcp)**.
+> Official TypeScript SDK and Developer Toolkit for building plugins, tools, isolated configurations, and visual extensions for **[Weavetab](https://github.com/Weavetab/mcp)**.
 
 [![npm version](https://img.shields.io/npm/v/@weavetab/sdk.svg?style=flat-square)](https://www.npmjs.com/package/@weavetab/sdk)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
@@ -28,7 +28,7 @@ With `@weavetab/sdk`, you can:
 
 `@weavetab/sdk` shares **identical version numbering** with `@weavetab/mcp`:
 * **Unified SemVer:** `@weavetab/sdk@2.6.x` matches `@weavetab/mcp@2.6.x`.
-* **Zero Confusion:** When specifying `"engines": { "weavetab": ">=2.6.0" }` in your `weavetab.json`, install `@weavetab/sdk@^2.6.0`.
+* **Zero Confusion:** When specifying `"engines": { "weavetab": ">=2.6.2" }` in your `weavetab.json`, install `@weavetab/sdk@^2.6.2`.
 
 ---
 
@@ -401,4 +401,4 @@ The `@weavetab/sdk` exposes the `weavetab`, `weavetab-sdk`, and `weavetab-plugin
 
 ## 📜 License
 
-MIT © [fy2ne](https://github.com/fy2ne)
+MIT © [Weavetab](https://weavetab.dev) (owned by [fy2ne](https://github.com/fy2ne))
