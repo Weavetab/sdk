@@ -474,10 +474,14 @@ export interface ToolOverrideDefinition<TArgs = any> {
 export interface WeavetabPluginDefinition {
   /** Unique name of the plugin matching package.json / weavetab.json */
   name: string;
-  /** Version string */
+  /** Human-readable display title (e.g., "GitHub") */
+  displayName?: string;
+  /** Version string (resolved from package.json) */
   version?: string;
   /** Description */
   description?: string;
+  /** Discovery category tags */
+  tags?: string[];
   /** Static tool registrations */
   tools?: Array<DefinedTool | McpToolRegistration>;
   /** Static CLI command registrations (`weavetab plugin use <plugin> <cmd>`) */
@@ -486,8 +490,6 @@ export interface WeavetabPluginDefinition {
   prompts?: Array<DefinedPrompt<any>>;
   /** Static `@` resource utility (MCP resource) registrations */
   resources?: DefinedResource[];
-  /** Relative path to the plugin's AI agent playbook (legacy fallback) */
-  agentsMd?: string;
   /** Operational heuristics and instructions for AI agents interacting with this plugin */
   instructions?: string;
   /** Static tool overrides */
@@ -628,24 +630,27 @@ export interface WeavetabManifest {
   $schema?: string;
   name: string;
   displayName?: string;
-  version: string;
   description?: string;
+  tags?: string[];
+  logo?: string;
+  banner?: string;
+  links?: {
+    github?: string;
+    npm?: string;
+    docs?: string;
+    discord?: string;
+    issues?: string;
+    homepage?: string;
+    [key: string]: string | undefined;
+  };
   entry?: string;
-  agentsMd?: string;
   instructions?: string;
-  author?: string | { name: string; email?: string; url?: string; role?: string };
-  authors?: Array<{ name: string; email?: string; url?: string; role?: string }>;
-  engines?: Record<string, string>;
-  environments?: string[];
+  defaultConfig?: Record<string, any>;
   permissions?: WeavetabManifestPermissions;
   tools?: WeavetabManifestTool[];
   commands?: WeavetabManifestCommand[];
   prompts?: WeavetabManifestPrompt[];
   resources?: WeavetabManifestResource[];
-  defaultConfig?: Record<string, any>;
-  keywords?: string[];
-  homepage?: string;
-  repository?: string;
   [key: string]: any;
 }
 
@@ -669,6 +674,11 @@ export class PluginBuilder {
     };
   }
 
+  displayName(title: string): this {
+    this.def.displayName = title;
+    return this;
+  }
+
   version(version: string): this {
     this.def.version = version;
     return this;
@@ -679,8 +689,8 @@ export class PluginBuilder {
     return this;
   }
 
-  agentsMd(path: string): this {
-    this.def.agentsMd = path;
+  tags(tags: string[]): this {
+    this.def.tags = tags;
     return this;
   }
 

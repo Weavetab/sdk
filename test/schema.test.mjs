@@ -73,11 +73,13 @@ describe("SDK Schema Exporter & Typegen", () => {
     assert.deepEqual(exported.parameters.required, ["category"]);
   });
 
-  it("generates full weavetab.json manifest from plugin definition", () => {
+  it("generates clean weavetab.json manifest from plugin definition without redundant package.json fields", () => {
     const plugin = definePlugin({
       name: "enterprise-shield",
+      displayName: "Enterprise Shield",
       version: "1.2.0",
       description: "Ad-blocker and telemetry filter",
+      defaultConfig: { blockTrackers: true },
       tools: [
         defineTool({
           name: "block_domain",
@@ -96,9 +98,14 @@ describe("SDK Schema Exporter & Typegen", () => {
       onDOMMutation: async (delta) => {},
     });
 
-    const manifest = exportManifest(plugin);
+    const manifest = exportManifest(plugin, { id: "legacy-id", agentsMd: "AGENTS.md", version: "0.9.0", engines: { node: ">=18" } });
     assert.equal(manifest.name, "enterprise-shield");
-    assert.equal(manifest.version, "1.2.0");
+    assert.equal(manifest.displayName, "Enterprise Shield");
+    assert.equal(manifest.version, undefined);
+    assert.equal(manifest.id, undefined);
+    assert.equal(manifest.agentsMd, undefined);
+    assert.equal(manifest.engines, undefined);
+    assert.deepEqual(manifest.defaultConfig, { blockTrackers: true });
     assert.equal(manifest.tools.length, 1);
     assert.equal(manifest.tools[0].name, "block_domain");
     assert.ok(manifest.middleware.onBeforeAction);

@@ -316,31 +316,41 @@ export function exportCommandSchema(cmd: any): WeavetabManifestCommandExport {
 
 /**
  * Generates or synchronizes a weavetab.json manifest from a plugin definition and existing manifest.
+ * Package identity, version, license, author, and engines live exclusively in package.json.
  */
 export function exportManifest(plugin: any, existingManifest: any = {}): any {
   const manifest = { ...existingManifest };
 
+  // Strip fields that belong exclusively in package.json or are deprecated
+  delete manifest.id;
+  delete manifest.agentsMd;
+  delete manifest.version;
+  delete manifest.author;
+  delete manifest.authors;
+  delete manifest.license;
+  delete manifest.engines;
+  delete manifest.environments;
+
   manifest.$schema = manifest.$schema || "https://weavetab.dev/schema/plugin.json";
   manifest.name = plugin.name || manifest.name || "unnamed-plugin";
-  if (plugin.version) manifest.version = plugin.version;
-  if (plugin.description) manifest.description = plugin.description;
+  if (plugin.displayName || manifest.displayName) {
+    manifest.displayName = plugin.displayName || manifest.displayName;
+  }
+  if (plugin.description || manifest.description) {
+    manifest.description = plugin.description || manifest.description;
+  }
+  if (Array.isArray(plugin.tags) && plugin.tags.length > 0) {
+    manifest.tags = plugin.tags;
+  }
   manifest.entry = manifest.entry || "dist/index.js";
   if (plugin.instructions || manifest.instructions) {
     manifest.instructions = plugin.instructions || manifest.instructions;
   }
-  if (plugin.agentsMd || manifest.agentsMd) {
-    manifest.agentsMd = plugin.agentsMd || manifest.agentsMd;
+  if (plugin.defaultConfig && Object.keys(plugin.defaultConfig).length > 0) {
+    manifest.defaultConfig = plugin.defaultConfig;
   }
-
-  if (!manifest.engines) {
-    manifest.engines = {
-      weavetab: "^2.6.2",
-      node: ">=18.0.0",
-    };
-  }
-
-  if (!manifest.environments) {
-    manifest.environments = ["mcp"];
+  if (plugin.permissions && Object.keys(plugin.permissions).length > 0) {
+    manifest.permissions = plugin.permissions;
   }
 
   const tools: WeavetabManifestTool[] = [];

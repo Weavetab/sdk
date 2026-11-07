@@ -15,11 +15,8 @@ import { exportManifest } from "./schema/exporter.js";
 import {
   runPreflight,
   auditInstructions,
-  auditAgentsMd,
   MAX_INSTRUCTIONS_LINES,
   MAX_INSTRUCTIONS_CHARS,
-  MAX_AGENTS_MD_LINES,
-  MAX_AGENTS_MD_CHARS,
 } from "./preflight.js";
 
 import { WEAVETAB_VERSION } from "./version.js";
@@ -114,7 +111,7 @@ function printTemplates(): void {
 function getTemplateSource(
   templateType: string,
   pluginPkgName: string
-): { src: string; tools: any[]; commands: any[]; perms: any; config: any; instructions: string; agentsMd?: string } {
+): { src: string; tools: any[]; commands: any[]; perms: any; config: any; instructions: string } {
   switch (templateType.toLowerCase()) {
     case "visual": {
       const instructions = `Visual overlay plugin for highlighting DOM targets and managing HUD state.
@@ -164,7 +161,6 @@ CLI Commands:
           },
         ],
         instructions,
-        agentsMd: instructions,
         src: `import { definePlugin, z, type PluginContext } from "@weavetab/sdk";
 
 export default definePlugin({
@@ -270,7 +266,6 @@ MCP Tools:
 - extract_table_data: Scrape rows matching rowSelector (up to limit) and persist to scraped_data.json.
 CLI Commands:
 - weavetab plugin use ${pluginPkgName} export-cache: Dump cached scraped_data.json records to stdout.`,
-        agentsMd: `DOM extraction plugin with isolated JSON storage.`,
         src: `import { definePlugin, z, type PluginContext } from "@weavetab/sdk";
 
 export default definePlugin({
@@ -363,7 +358,6 @@ Interceptors:
 - Wraps browser_navigate to block domains listed in blockedDomains.
 CLI Commands:
 - weavetab plugin use ${pluginPkgName} blocklist [--add <domain>]: View or add blocked domains.`,
-        agentsMd: `Navigation guardrail and tool interceptor plugin.`,
         src: `import { definePlugin, z, type PluginContext } from "@weavetab/sdk";
 
 export default definePlugin({
@@ -465,7 +459,6 @@ MCP Tools:
 - run_automation: Execute workflow against target.
 CLI Commands:
 - weavetab plugin use ${pluginPkgName} trigger --target <url>: Run automation workflow from CLI.`,
-        agentsMd: `Multi-step browser automation workflow plugin.`,
         src: `import { definePlugin, z, type PluginContext } from "@weavetab/sdk";
 
 export default definePlugin({
@@ -549,7 +542,6 @@ MCP Tools:
 CLI Commands:
 - weavetab plugin use ${pluginPkgName} status [--reset]: Inspect or reset invocation counter.
 - weavetab plugin use ${pluginPkgName} example_action --message "hello": Invoke MCP tool from CLI.`,
-        agentsMd: `Standard Weavetab plugin with MCP tool, CLI command, and HUD integration.`,
         src: `import { definePlugin, z, type PluginContext } from "@weavetab/sdk";
 
 export default definePlugin({
@@ -727,15 +719,11 @@ async function runInit(): Promise<void> {
   const weavetabJson = {
     $schema: SCHEMA_URL,
     name: pkgJson.name,
-    version: "1.0.0",
+    displayName: pluginName,
     description: pkgJson.description,
+    tags: ["Automation", "Tools", "MCP"],
     entry: "dist/index.js",
     instructions: tpl.instructions,
-    engines: {
-      weavetab: `^${sdkVer}`,
-      node: ">=18.0.0",
-    },
-    environments: ["mcp", "cli"],
     defaultConfig: tpl.config,
     permissions: tpl.perms,
     tools: tpl.tools,
@@ -811,15 +799,18 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const pkgJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf-8"));
 const manifest = JSON.parse(fs.readFileSync(path.join(root, "weavetab.json"), "utf-8"));
 const instructions = (manifest.instructions || "").trim();
 
 describe("weavetab.json manifest & agent instructions budget", () => {
-  it("has required fields", () => {
-    assert.ok(manifest.name, "missing name");
-    assert.ok(manifest.version, "missing version");
-    assert.ok(manifest.entry, "missing entry");
-    assert.ok(manifest.engines?.weavetab, "missing engines.weavetab");
+  it("has required fields in package.json and weavetab.json", () => {
+    assert.ok(pkgJson.name, "missing package.json name");
+    assert.ok(pkgJson.version, "missing package.json version");
+    assert.ok(manifest.name, "missing weavetab.json name");
+    assert.ok(manifest.entry, "missing weavetab.json entry");
+    assert.equal(manifest.id, undefined, "id must not exist in weavetab.json");
+    assert.equal(manifest.agentsMd, undefined, "agentsMd must not exist in weavetab.json");
   });
 
   it("declares $schema on weavetab.dev", () => {
@@ -912,25 +903,19 @@ async function runBuild(): Promise<void> {
     }
   }
 
-  const sdkVer = getSdkVersion();
+  delete manifest.id;
+  delete manifest.agentsMd;
+  delete manifest.version;
+  delete manifest.author;
+  delete manifest.authors;
+  delete manifest.license;
+  delete manifest.engines;
+  delete manifest.environments;
 
   manifest.$schema = manifest.$schema || SCHEMA_URL;
   manifest.name = pkgJson.name || manifest.name || "unnamed-plugin";
-  manifest.version = pkgJson.version || manifest.version || "1.0.0";
-  manifest.description = pkgJson.description || manifest.description || "";
+  manifest.description = manifest.description || pkgJson.description || "";
   manifest.entry = entryRel;
-  manifest.agentsMd = manifest.agentsMd || "AGENTS.md";
-
-  if (!manifest.engines) {
-    manifest.engines = {
-      weavetab: `^${sdkVer}`,
-      node: pkgJson.engines?.node || ">=18.0.0",
-    };
-  }
-
-  if (!manifest.environments) {
-    manifest.environments = ["mcp"];
-  }
 
   if (!manifest.permissions) {
     manifest.permissions = {
@@ -950,25 +935,13 @@ async function runBuild(): Promise<void> {
     };
   }
 
-  // 3. Enforce instructions context budget (in-manifest instructions or legacy AGENTS.md)
-  let agentSource: string | null = null;
-  let sourceLabel = "instructions";
-
-  if (typeof manifest.instructions === "string" && manifest.instructions.trim()) {
-    agentSource = manifest.instructions.trim();
-    sourceLabel = "manifest 'instructions'";
-  } else {
-    const agentsRel = typeof manifest.agentsMd === "string" && manifest.agentsMd.trim() ? manifest.agentsMd.trim() : "AGENTS.md";
-    const agentsPath = path.join(cwd, agentsRel);
-    if (fs.existsSync(agentsPath)) {
-      agentSource = fs.readFileSync(agentsPath, "utf-8").trim();
-      sourceLabel = agentsRel;
-    }
-  }
+  // 3. Enforce instructions context budget (strictly in weavetab.json 'instructions')
+  const agentSource = typeof manifest.instructions === "string" ? manifest.instructions.trim() : "";
+  const sourceLabel = "manifest 'instructions'";
 
   if (!agentSource) {
     console.error(
-      `\x1b[31m[ERROR]\x1b[0m Missing agent instructions in ${cwd}. Every plugin must declare 'instructions' in weavetab.json (or provide a legacy AGENTS.md) teaching AI agents how to use its tools and commands.`
+      `\x1b[31m[ERROR]\x1b[0m Missing agent instructions in ${cwd}. Every plugin must declare 'instructions' in weavetab.json teaching AI agents how to use its tools and commands.`
     );
     process.exit(1);
   }
@@ -1099,10 +1072,10 @@ async function runValidate(): Promise<void> {
     const errors: string[] = [];
     const warnings: string[] = [];
 
-    if (!manifest.name) errors.push("Missing 'name' field");
-    if (!manifest.version) errors.push("Missing 'version' field");
-    if (!manifest.entry) errors.push("Missing 'entry' field");
-    if (!manifest.engines?.weavetab) errors.push("Missing 'engines.weavetab' field");
+    if (!manifest.name) errors.push("Missing 'name' field in weavetab.json");
+    if (!manifest.entry) errors.push("Missing 'entry' field in weavetab.json");
+    if (manifest.id) errors.push("Field 'id' is not allowed in weavetab.json");
+    if (manifest.agentsMd) errors.push("Field 'agentsMd' is removed; use 'instructions' in weavetab.json");
 
     // Verify entry file exists
     const entryPath = path.resolve(cwd, manifest.entry || "dist/index.js");
@@ -1110,25 +1083,13 @@ async function runValidate(): Promise<void> {
       warnings.push(`Entrypoint file '${manifest.entry}' does not exist yet. Run 'weavetab build' to compile.`);
     }
 
-    // Verify instructions context budget (in-manifest instructions or legacy AGENTS.md)
-    let agentSource: string | null = null;
-    let sourceLabel = "instructions";
-
-    if (typeof manifest.instructions === "string" && manifest.instructions.trim()) {
-      agentSource = manifest.instructions.trim();
-      sourceLabel = "manifest 'instructions'";
-    } else {
-      const agentsRel = typeof manifest.agentsMd === "string" && manifest.agentsMd.trim() ? manifest.agentsMd.trim() : "AGENTS.md";
-      const agentsPath = path.resolve(cwd, agentsRel);
-      if (fs.existsSync(agentsPath)) {
-        agentSource = fs.readFileSync(agentsPath, "utf-8").trim();
-        sourceLabel = agentsRel;
-      }
-    }
+    // Verify instructions context budget (strictly in weavetab.json 'instructions')
+    const agentSource = typeof manifest.instructions === "string" ? manifest.instructions.trim() : "";
+    const sourceLabel = "manifest 'instructions'";
 
     if (!agentSource) {
       errors.push(
-        "Missing agent instructions in weavetab.json. Declare 'instructions' (or provide a legacy AGENTS.md) so AI agents know how to use this plugin."
+        "Missing agent instructions in weavetab.json. Declare 'instructions' so AI agents know how to use this plugin."
       );
     } else {
       const audit = auditInstructions(agentSource, sourceLabel);
@@ -1239,30 +1200,15 @@ async function runDoctor(): Promise<void> {
 
   // Check 4: Agent instructions context budget
   let doctorSource: string | null = null;
-  let doctorLabel = "instructions";
+  const doctorLabel = "weavetab.json 'instructions'";
   try {
     if (fs.existsSync(manifestPath)) {
       const parsedManifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
       if (typeof parsedManifest.instructions === "string" && parsedManifest.instructions.trim()) {
         doctorSource = parsedManifest.instructions.trim();
-        doctorLabel = "weavetab.json 'instructions'";
-      } else if (parsedManifest.agentsMd) {
-        const p = path.join(cwd, parsedManifest.agentsMd);
-        if (fs.existsSync(p)) {
-          doctorSource = fs.readFileSync(p, "utf-8").trim();
-          doctorLabel = parsedManifest.agentsMd;
-        }
       }
     }
   } catch {}
-
-  if (!doctorSource) {
-    const defaultAgentsPath = path.join(cwd, "AGENTS.md");
-    if (fs.existsSync(defaultAgentsPath)) {
-      doctorSource = fs.readFileSync(defaultAgentsPath, "utf-8").trim();
-      doctorLabel = "AGENTS.md";
-    }
-  }
 
   if (doctorSource) {
     const audit = auditInstructions(doctorSource, doctorLabel);
