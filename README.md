@@ -28,7 +28,7 @@ With `@weavetab/sdk`, you can:
 
 `@weavetab/sdk` shares **identical version numbering** with `@weavetab/mcp`:
 * **Unified SemVer:** `@weavetab/sdk@2.6.x` matches `@weavetab/mcp@2.6.x`.
-* **Zero Confusion:** When specifying `"engines": { "weavetab": ">=2.6.2" }` in your `weavetab.json`, install `@weavetab/sdk@^2.6.2`.
+* **Zero Confusion:** Declaring `"@weavetab/sdk": "^2.6.3"` in your `package.json` automatically defines your plugin's required `@weavetab/mcp` compatibility range (`^2.6.3`) with zero duplicate fields in `weavetab.json`.
 
 ---
 

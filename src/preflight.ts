@@ -5,10 +5,6 @@ export const MAX_INSTRUCTIONS_LINES = 80;
 export const MAX_INSTRUCTIONS_CHARS = 3200;
 export const MIN_INSTRUCTIONS_CHARS = 20;
 
-export const MAX_AGENTS_MD_LINES = MAX_INSTRUCTIONS_LINES;
-export const MAX_AGENTS_MD_CHARS = MAX_INSTRUCTIONS_CHARS;
-export const MIN_AGENTS_MD_CHARS = MIN_INSTRUCTIONS_CHARS;
-
 export interface InstructionsAudit {
   valid: boolean;
   lines: number;
@@ -16,8 +12,6 @@ export interface InstructionsAudit {
   errors: string[];
   warnings: string[];
 }
-
-export type AgentsMdAudit = InstructionsAudit;
 
 /**
  * Enforces the strict context-window budget on plugin instructions so
@@ -54,8 +48,6 @@ export function auditInstructions(content: string, label = "instructions"): Inst
     warnings,
   };
 }
-
-export const auditAgentsMd = (content: string) => auditInstructions(content, "AGENTS.md");
 
 export interface PreflightResult {
   success: boolean;
@@ -111,17 +103,29 @@ export function runPreflight(cwd = process.cwd()): PreflightResult {
 
   // Anti-squatting rule: no arbitrary short id in weavetab.json
   if (manifest.id) {
-    warnings.push("field 'id' in weavetab.json is ignored; package identity is strictly its npm package name");
+    errors.push("field 'id' is not allowed in weavetab.json; use 'name' for package ID and 'displayName' for title");
   }
 
-  // Version check
-  if (!manifest.version && !pkgJson.version) {
-    errors.push("missing version in weavetab.json and package.json");
+  if (manifest.agentsMd) {
+    errors.push("field 'agentsMd' is removed; declare agent instructions directly in weavetab.json under 'instructions'");
   }
 
-  // Engine dependency
-  if (!manifest.engines?.weavetab && !pkgJson.engines?.weavetab) {
-    warnings.push("missing 'engines.weavetab' declaration; defaults to latest runtime");
+  // Version check (strictly from package.json)
+  if (!pkgJson.version) {
+    errors.push("missing 'version' in package.json");
+  }
+
+  // SDK / MCP dependency check in package.json
+  const sdkDep =
+    pkgJson.dependencies?.["@weavetab/sdk"] ||
+    pkgJson.peerDependencies?.["@weavetab/sdk"] ||
+    pkgJson.devDependencies?.["@weavetab/sdk"];
+  if (!sdkDep) {
+    warnings.push("missing '@weavetab/sdk' in package.json dependencies (used to determine Weavetab MCP version compatibility)");
+  }
+
+  if (!pkgJson.engines?.node) {
+    warnings.push("missing 'engines.node' declaration in package.json; defaults to >=18.0.0");
   }
 
   // 3. README check
@@ -134,28 +138,13 @@ export function runPreflight(cwd = process.cwd()): PreflightResult {
     }
   }
 
-  // 4. Agent instructions check (In-manifest instructions or legacy AGENTS.md)
-  let agentSource: string | null = null;
-  let sourceLabel = "weavetab.json 'instructions'";
-
-  if (typeof manifest.instructions === "string" && manifest.instructions.trim()) {
-    agentSource = manifest.instructions;
-    sourceLabel = "manifest 'instructions'";
-  } else {
-    const agentsRel = typeof manifest.agentsMd === "string" && manifest.agentsMd.trim() ? manifest.agentsMd.trim() : "AGENTS.md";
-    const agentsPath = path.join(cwd, agentsRel);
-    if (fs.existsSync(agentsPath)) {
-      agentSource = fs.readFileSync(agentsPath, "utf-8");
-      sourceLabel = agentsRel;
-    }
-  }
-
-  if (!agentSource) {
+  // 4. Agent instructions check (strictly in weavetab.json 'instructions')
+  if (typeof manifest.instructions !== "string" || !manifest.instructions.trim()) {
     errors.push(
-      "manifest must declare 'instructions' (or provide an AGENTS.md file) so AI agents know how to use this plugin"
+      "weavetab.json must declare 'instructions' so AI agents know how to use this plugin's tools and commands"
     );
   } else {
-    const audit = auditInstructions(agentSource, sourceLabel);
+    const audit = auditInstructions(manifest.instructions, "manifest 'instructions'");
     errors.push(...audit.errors);
     warnings.push(...audit.warnings);
   }

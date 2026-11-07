@@ -10,7 +10,10 @@ slug: plugin-manifest
 
 # `weavetab.json` Manifest Specification
 
-Every Weavetab plugin must contain a `weavetab.json` file in its root directory. This manifest serves as the single source of truth for the plugin's metadata, permissions, declared tools, CLI commands, and AI agent documentation.
+Every Weavetab plugin must contain a `weavetab.json` file in its root directory alongside `package.json`.
+
+- **`package.json`** is the single source of truth for standard npm metadata: `name`, `version`, `license`, `author`, `engines.node`, and `@weavetab/sdk` dependency range (which determines the required Weavetab MCP version).
+- **`weavetab.json`** is the single source of truth for Weavetab capabilities: `name`, `displayName`, `description`, `tags`, `links`, `entry`, `instructions`, `defaultConfig`, `permissions`, `tools`, `commands`, `prompts`, and `resources`.
 
 The official schema is available at:
 `https://weavetab.dev/schema/plugin.json`
@@ -24,15 +27,14 @@ The official schema is available at:
   "$schema": "https://weavetab.dev/schema/plugin.json",
   "name": "weavetab-plugin-database",
   "displayName": "Database Inspector",
-  "version": "1.0.0",
   "description": "Inspect PostgreSQL tables, execute safe read queries, and diff schemas",
   "entry": "dist/index.js",
   "instructions": "Inspect PostgreSQL tables, execute safe read queries, and diff schemas before modifying.",
-  "engines": {
-    "weavetab": ">=2.6.2",
-    "node": ">=18.0.0"
+  "tags": ["Database", "PostgreSQL", "Developer Tools"],
+  "links": {
+    "github": "https://github.com/acme/weavetab-plugin-database",
+    "npm": "https://www.npmjs.com/package/weavetab-plugin-database"
   },
-  "environments": ["mcp", "cli"],
   "defaultConfig": {
     "maxRows": 100,
     "ssl": true
@@ -55,7 +57,7 @@ The official schema is available at:
       "reason": "Exposes @postgres://tables resource."
     },
     "network": {
-      "allowedDomains": ["localhost:5432", "postgres.internal"],
+      "domains": ["localhost:5432", "postgres.internal"],
       "reason": "Connects to local and private network database servers."
     },
     "config": {
@@ -116,21 +118,23 @@ The official schema is available at:
 | Property | Type | Required | Description |
 |---|---|---|---|
 | `$schema` | `string` | No | URI pointing to the Weavetab plugin JSON schema. |
-| `name` | `string` | **Yes** | Unique npm package name. Must be lowercase alphanumeric with hyphens or scoped (`@org/pkg`). |
+| `name` | `string` | **Yes** | Unique npm package name matching `package.json` (`@org/pkg` or `pkg-name`). |
 | `displayName`| `string` | No | Human-readable title displayed on `weavetab.dev/discover` (max 60 characters). |
-| `version` | `string` | **Yes** | Semantic version matching `package.json` (e.g., `1.0.0`). |
 | `description`| `string` | **Yes** | Concise summary of what the plugin does (10–300 characters). |
+| `tags` | `string[]` | No | Discovery category tags displayed on `weavetab.dev/discover`. |
+| `logo` | `string` | No | Relative path or URL to the plugin logo. |
+| `banner` | `string` | No | Relative path or URL to the plugin header banner. |
+| `links` | `object` | No | External links (`github`, `npm`, `docs`, `discord`, `issues`, `homepage`). |
 | `entry` | `string` | **Yes** | Relative path to compiled JavaScript entrypoint (e.g., `dist/index.js`). |
-| `instructions` | `string` | **Yes** | Inline AI agent instructions injected directly into MCP context (20–3,200 chars). |
-| `agentsMd` | `string` | No | Legacy relative path to AI agent markdown file (deprecated, use `instructions`). |
-| `engines` | `object` | **Yes** | Required runtime versions (`weavetab`, `node`). |
-| `environments`| `string[]`| No | Supported target environments: `["mcp"]`, `["cli"]`, or `["mcp", "cli"]`. |
-| `defaultConfig`| `object` | No | Default configuration keys merged on initial load. |
+| `instructions` | `string` | No | Inline AI agent instructions injected directly into MCP context (max 80 lines / 3,200 chars). |
+| `defaultConfig`| `object` | No | Default configuration template written to `~/.weavetab/plugins/<name>/config.json`. |
 | `permissions`| `object` | **Yes** | RBAC permission grants with mandatory justification strings. |
 | `tools` | `array` | No | Statically exported MCP tools. |
-| `commands` | `array` | No | Statically exported CLI commands. |
-| `prompts` | `array` | No | Statically exported `/` Prompt templates (Utilities). |
-| `resources`| `array` | No | Statically exported `@` Resource endpoints (Utilities). |
+| `commands` | `array` | No | Statically exported CLI commands (`weavetab plugin use <pkg> <cmd>`). |
+| `prompts` | `array` | No | Statically exported `/` Prompts. |
+| `resources`| `array` | No | Statically exported `@` Resources. |
+
+> **Note:** Fields like `version`, `license`, `author`, and `engines` belong in `package.json` and should not be duplicated in `weavetab.json`.
 
 ---
 
@@ -155,8 +159,8 @@ Plugins execute without privileges by default. Any capability accessed by the pl
 | | `cdp.click` | `boolean` | Permission to dispatch synthetic mouse clicks. |
 | | `cdp.navigate` | `boolean` | Permission to navigate active tabs. |
 | | `cdp.screenshot`| `boolean`| Permission to capture CDP viewport screenshots. |
-| **Network** | `network.allowedDomains`| `string[]`| Whitelist of hostnames or globs permitted for outgoing HTTP requests. |
-| **Filesystem**| `filesystem.allowedPaths`| `string[]`| Whitelist of paths permitted outside `~/.weavetab/plugins/<name>/`. |
+| **Network** | `network.domains`| `string[]`| Whitelist of hostnames or globs permitted for outgoing HTTP requests. |
+| **Filesystem**| `fs.read` / `write`| `string[]`| Whitelist of paths permitted outside `~/.weavetab/plugins/<name>/`. |
 | **Hooks** | `hooks.onBeforeAction` | `boolean`| Permission to arm pre-execution interceptors. |
 | | `hooks.onAfterAction` | `boolean`| Permission to arm post-execution interceptors. |
 | | `hooks.onDOMMutation` | `boolean`| Permission to listen to real-time DOM mutation streams. |
@@ -166,7 +170,7 @@ Plugins execute without privileges by default. Any capability accessed by the pl
 
 ## 4. Automatic Manifest Synchronization
 
-You do not need to keep `tools`, `commands`, `prompts`, and `resources` arrays in sync by hand.
+You do not need to keep `tools`, `commands`, `prompts`, `resources`, and `defaultConfig` in sync by hand.
 
 When you execute:
 ```bash
@@ -175,4 +179,4 @@ npm run build
 npx @weavetab/sdk manifest
 ```
 
-The SDK analyzes your compiled JavaScript bundle, extracts the schemas declared in `defineTool`, `defineCommand`, `definePrompt`, and `defineResource`, and updates `weavetab.json` automatically while preserving comments and custom permission reasons.
+The SDK analyzes your compiled JavaScript bundle, extracts the schemas declared in `definePlugin`, `defineTool`, `defineCommand`, `definePrompt`, and `defineResource`, and updates `weavetab.json` automatically while stripping redundant fields that belong in `package.json`.

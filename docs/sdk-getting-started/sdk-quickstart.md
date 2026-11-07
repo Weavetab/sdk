@@ -181,9 +181,9 @@ Grant the necessary permissions in your manifest:
   "description": "Production plugin demonstrating tools, CLI commands, and utilities",
   "entry": "dist/index.js",
   "instructions": "Extracts OpenGraph, title, and meta descriptions from active browser tab. Run extract_metadata after page navigation completes.",
-  "engines": {
-    "weavetab": ">=2.6.2",
-    "node": ">=18.0.0"
+  "defaultConfig": {
+    "maxRetries": 3,
+    "verbose": false
   },
   "permissions": {
     "tools": {

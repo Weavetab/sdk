@@ -1,6 +1,6 @@
 {
   "name": "@weavetab/sdk",
-  "version": "2.6.2",
+  "version": "2.6.3",
   "description": "Official TypeScript SDK for developing Weavetab plugins and tools.",
   "author": {
     "name": "Weavetab",
